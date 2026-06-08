@@ -1,0 +1,40 @@
+{
+  "name": "chifu-wizard",
+  "version": "0.1.0",
+  "description": "One-command setup for chifu — installs the CLI, teaches your AI coding agent (Claude Code, Cursor, Windsurf) to check dependencies for CVEs, and saves your API key. Run with `bunx chifu-wizard` or `npx chifu-wizard`.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "chifu-wizard": "./src/cli.ts"
+  },
+  "files": [
+    "src",
+    "assets",
+    "install.sh",
+    "install.ps1",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "chifu",
+    "installer",
+    "setup",
+    "wizard",
+    "cve",
+    "dependencies",
+    "security",
+    "ai-agents",
+    "claude-code",
+    "cursor",
+    "windsurf",
+    "skill"
+  ],
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.4.0"
+  }
+}
