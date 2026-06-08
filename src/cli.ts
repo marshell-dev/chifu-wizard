@@ -51,7 +51,7 @@ interface Args {
 }
 
 const DEFAULT_API_URL = "https://api.marshell.dev";
-const DEFAULT_WEB_URL = "https://app.marshell.dev";
+const DEFAULT_WEB_URL = "https://marshell.dev";
 
 function getOpt(argv: string[], name: string): string | undefined {
   // Supports both `--flag value` and `--flag=value`.

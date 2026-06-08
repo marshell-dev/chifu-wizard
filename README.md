@@ -88,7 +88,7 @@ do want a key, you have two paths:
   pairing URL/code you confirm in the browser, then writes the key to your local
   config. No copy-pasting secrets.
 - **Manual key.** Copy a key from the dashboard
-  ([app.marshell.dev](https://app.marshell.dev)) and either pass it to the wizard
+  ([marshell.dev](https://marshell.dev)) and either pass it to the wizard
   (`--api-key chf_…`), set `CHIFU_API_KEY`, or run `chifu login chf_…`.
 
 Keys are stored at `~/.config/chifu/config.json` (or `%APPDATA%\chifu` on

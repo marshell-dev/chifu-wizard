@@ -32,7 +32,7 @@ verification step. If a step fails, report the failure and stop — do not guess
         This prints a URL/code to confirm in the browser. Hand the URL to the
         user; wait for them to approve.
      b. Manual key: tell the user to copy a key from the dashboard
-        (https://app.marshell.dev) and run:  chifu login chf_xxx
+        (https://marshell.dev) and run:  chifu login chf_xxx
    If the user wants to stay anonymous, skip this step.
 
 4. Confirm the CLI works by running a real check in the project root:
