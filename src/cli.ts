@@ -27,7 +27,7 @@ import {
   type AgentTarget,
   type AgentInstall,
 } from "./steps/install-agents.ts";
-import { configureAuth, hasConfiguredKey } from "./steps/auth.ts";
+import { signIn, hasConfiguredKey } from "./steps/auth.ts";
 import { printAgentPrompt } from "./agent-prompt.ts";
 
 const VERSION = "0.1.0";
@@ -37,16 +37,21 @@ interface Args {
   noInteractive: boolean;
   skipCli: boolean;
   skipAgents: boolean;
+  skipLogin: boolean;
   allAgents: boolean;
   targets: AgentTarget[];
   json: boolean;
   agent: boolean;
   apiKey?: string;
   apiUrl?: string;
+  webUrl?: string;
   help: boolean;
   version: boolean;
   errors: string[];
 }
+
+const DEFAULT_API_URL = "https://api.marshell.dev";
+const DEFAULT_WEB_URL = "https://app.marshell.dev";
 
 function getOpt(argv: string[], name: string): string | undefined {
   // Supports both `--flag value` and `--flag=value`.
@@ -92,6 +97,7 @@ function parseArgs(argv: string[]): Args {
     noInteractive: has("--no-interactive") || has("--ci"),
     skipCli: has("--skip-cli"),
     skipAgents: has("--skip-agents"),
+    skipLogin: has("--skip-login"),
     allAgents: has("--all-agents"),
     targets,
     json: has("--json"),
@@ -99,6 +105,7 @@ function parseArgs(argv: string[]): Args {
     // Flags take precedence, then env (so install one-liners can pass either).
     apiKey: getOpt(argv, "--api-key") ?? process.env.CHIFU_API_KEY,
     apiUrl: getOpt(argv, "--api-url") ?? process.env.CHIFU_API_URL,
+    webUrl: getOpt(argv, "--web-url") ?? process.env.CHIFU_WEB_URL,
     help: has("--help") || has("-h"),
     version: has("--version") || has("-v"),
     errors,
@@ -112,25 +119,25 @@ ${c.bold("Usage:")}
   npx @marshell/chifu-wizard [options]
 
 ${c.bold("What it does:")}
-  • installs the chifu CLI globally if it's missing
-  • installs the chifu skill/rule into your detected agents
-    (Claude Code, Cursor, Windsurf, Codex, OpenCode, Gemini CLI, Cline)
-  • optionally saves an API key and a custom backend URL
+  1. installs the chifu CLI (if missing)
+  2. installs the chifu skill into your detected agents
+     (Claude Code, Cursor, Windsurf, Codex, OpenCode, Gemini CLI, Cline)
+  3. signs you in through your browser (a 6-character code) — optional
 
 ${c.bold("Options:")}
-  -y, --yes            Accept all defaults; don't prompt (still interactive-safe)
-      --ci             Non-interactive defaults (alias of --no-interactive)
-      --no-interactive Same as --ci
+  -y, --yes            Non-interactive: do steps 1-2, skip the browser sign-in
+      --ci             Same as --yes
       --json           Print a machine-readable JSON result of what was installed
       --agent          Print an onboarding prompt for an external coding agent and
                        exit (no side effects; the agent sets chifu up itself)
-      --all-agents     Install into every detected agent without per-agent prompts
       --target <name>  Only install into these agents (repeatable / comma-sep).
                        Names: ${ALL_TARGETS.join(", ")}
       --skip-cli       Don't install the chifu CLI
       --skip-agents    Don't touch any agent config
-      --api-key <key>  Save this chifu API key (chf_…). Also reads CHIFU_API_KEY
-      --api-url <url>  Use a custom backend. Also reads CHIFU_API_URL
+      --skip-login     Don't sign in (chifu still works anonymously)
+      --api-key <key>  Sign in with this key instead of the browser. Reads CHIFU_API_KEY
+      --api-url <url>  Backend origin. Reads CHIFU_API_URL  (default ${DEFAULT_API_URL})
+      --web-url <url>  Dashboard origin for sign-in. Reads CHIFU_WEB_URL  (default ${DEFAULT_WEB_URL})
   -h, --help           Show this help
   -v, --version        Show the version
 `;
@@ -152,43 +159,27 @@ interface RunResult {
 }
 
 function printSummary(result: RunResult): void {
-  log.step("All set");
+  log.step("Done");
 
-  if (result.cli.present) {
-    const via = result.cli.installedVia ? ` (installed via ${result.cli.installedVia})` : "";
-    log.ok(`chifu CLI ready${via}`);
-  } else {
-    log.warn("chifu CLI not installed — your agent will fall back to `bunx @marshell/chifu`");
+  if (!result.cli.present) {
+    log.warn("chifu CLI isn't on PATH — your agent will fall back to `bunx @marshell/chifu`");
   }
 
-  if (result.agentsConfigured) {
-    const names = result.agents
-      .filter((a) => a.installed)
-      .map((a) => a.label)
-      .join(", ");
-    log.ok(`Your AI coding agent now knows how to check dependencies for CVEs (${names})`);
+  const names = result.agents.filter((a) => a.installed).map((a) => a.label);
+  if (names.length > 0) {
+    const verb = names.length === 1 ? "agent can" : "agents can";
+    log.ok(`Your ${verb} now check dependencies for CVEs: ${c.bold(names.join(", "))}`);
   } else {
-    log.info("No agent was configured — install one and re-run `bunx @marshell/chifu-wizard`");
+    log.info("No supported agent detected — install one and re-run the wizard.");
   }
 
-  log.ok(
-    result.apiKeyConfigured
-      ? "API key saved — results will sync to your dashboard"
-      : "Running anonymously (no API key) — that's fine, scans still work",
-  );
-
-  log.plain();
-  log.plain(c.bold("  Try it:"));
-  log.plain(`    1. Open your AI coding agent in a project.`);
-  log.plain(`    2. Add or upgrade a dependency (edit ${c.cyan("package.json")}).`);
-  log.plain(
-    `    3. Ask it: ${c.cyan('"check my dependencies for vulnerabilities and fix them"')}.`,
-  );
   log.plain();
   log.plain(
-    `  Or run it yourself anytime: ${c.cyan("chifu check")} ${c.dim("(add --json for agents)")}`,
+    `  ${c.bold("Try it:")} in your agent, ask ${c.cyan('"check my dependencies for vulnerabilities and fix them"')}`,
   );
-  log.plain(`  Docs: ${c.cyan("https://marshell.dev")}`);
+  log.plain(
+    `  Or run ${c.cyan("chifu check")} yourself.  Docs: ${c.cyan("https://marshell.dev")}`,
+  );
   log.plain();
 }
 
@@ -216,8 +207,11 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const assumeYes = args.yes || args.noInteractive;
-  const prompt: Prompter = makePrompter(!assumeYes);
+  // Only the sign-in step is interactive; --yes/--ci make the whole run silent.
+  const nonInteractive = args.yes || args.noInteractive;
+  const prompt: Prompter = makePrompter(!nonInteractive);
+  const apiUrl = (args.apiUrl?.trim() || DEFAULT_API_URL).replace(/\/+$/, "");
+  const webUrl = (args.webUrl?.trim() || DEFAULT_WEB_URL).replace(/\/+$/, "");
 
   // In --json mode we suppress the narrative banner so stdout stays parseable;
   // step logging still goes to stdout but the final line is the JSON object.
@@ -225,19 +219,19 @@ async function main(): Promise<number> {
   if (!jsonMode) printBanner();
 
   try {
-    // 1. CLI
+    // 1. CLI — install automatically, no prompt.
     let cliPresent = false;
     let installedVia: "npm" | "bun" | null = null;
     if (args.skipCli) {
       log.step("chifu CLI");
       log.skip("Skipped (--skip-cli)");
     } else {
-      const r = await installCli(prompt, assumeYes);
+      const r = await installCli(prompt, true);
       cliPresent = r.present;
       installedVia = r.installedVia;
     }
 
-    // 2. Agents
+    // 2. Skill → every detected agent, no per-agent prompts.
     let agents: AgentInstall[] = [];
     let agentsConfigured = false;
     if (args.skipAgents) {
@@ -245,20 +239,22 @@ async function main(): Promise<number> {
       log.skip("Skipped (--skip-agents)");
     } else {
       const r = await installAgents(prompt, {
-        assumeYes,
+        assumeYes: true,
         only: args.targets,
-        all: args.allAgents,
+        all: true,
       });
       agents = r.installs;
       agentsConfigured = r.any;
     }
 
-    // 3 & 4. Auth + backend URL
-    await configureAuth(prompt, {
-      cliPresent,
+    // 3. Sign in via the browser (6-char pairing code). Interactive unless
+    // --yes/--ci/--skip-login, or --api-key was supplied.
+    const signedIn = await signIn(prompt, {
+      apiUrl,
+      webUrl,
       apiKey: args.apiKey,
-      apiUrl: args.apiUrl,
-      assumeYes,
+      nonInteractive,
+      skip: args.skipLogin,
     });
 
     const result: RunResult = {
@@ -267,10 +263,9 @@ async function main(): Promise<number> {
       cli: { present: cliPresent, installedVia },
       agents,
       agentsConfigured,
-      apiKeyConfigured: hasConfiguredKey(),
+      apiKeyConfigured: signedIn || hasConfiguredKey(),
     };
 
-    // 5. Summary
     if (jsonMode) {
       process.stdout.write(JSON.stringify(result, null, 2) + "\n");
     } else {

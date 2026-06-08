@@ -314,7 +314,7 @@ export async function installAgents(
     };
 
     if (!det.detected) {
-      log.skip(`${adapter.label}: not detected (${det.reason})`);
+      // Stay quiet about agents you don't have — only report what we touch.
       record.note = `not detected: ${det.reason}`;
       installs.push(record);
       continue;
@@ -343,8 +343,7 @@ export async function installAgents(
     try {
       adapter.apply(path);
       record.installed = true;
-      const tag = BEST_EFFORT.has(adapter.target) ? c.dim(" [best-effort format]") : "";
-      log.ok(`${adapter.label}: ${adapter.format} installed → ${c.dim(path)}${tag}`);
+      log.ok(`${adapter.label} ${c.dim(`→ ${path}`)}`);
     } catch (err) {
       record.note = `write failed: ${(err as Error).message}`;
       log.fail(`${adapter.label}: couldn't write ${adapter.format} (${(err as Error).message})`);
