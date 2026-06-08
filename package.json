@@ -4,6 +4,17 @@
   "description": "One-command setup for chifu — installs the CLI, teaches your AI coding agent (Claude Code, Cursor, Windsurf) to check dependencies for CVEs, and saves your API key. Run with `bunx @marshell/chifu-wizard` or `npx @marshell/chifu-wizard`.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marshell-dev/chifu-wizard.git"
+  },
+  "homepage": "https://github.com/marshell-dev/chifu-wizard#readme",
+  "bugs": {
+    "url": "https://github.com/marshell-dev/chifu-wizard/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "chifu-wizard": "src/cli.ts"
   },
