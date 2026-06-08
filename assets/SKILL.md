@@ -22,8 +22,8 @@ sure none of them have known vulnerabilities — and fix the ones that do. The
    chifu check --json
    ```
 
-   If the command isn't found, fall back to `bunx @mfinikov/chifu check --json`. If it
-   still fails, tell the user to install it (`bunx @mfinikov/chifu`) and stop — do not
+   If the command isn't found, fall back to `bunx @marshell/chifu check --json`. If it
+   still fails, tell the user to install it (`bunx @marshell/chifu`) and stop — do not
    guess vulnerabilities yourself.
 
 2. **Read the output.** `packages` is the actionable list (one entry per

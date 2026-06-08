@@ -43,7 +43,7 @@ else
   export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
   export PATH="$BUN_INSTALL/bin:$PATH"
   if ! BUN_BIN="$(find_bun)"; then
-    warn "Bun installed but couldn't be located. Open a new terminal and run: bunx @mfinikov/chifu-wizard"
+    warn "Bun installed but couldn't be located. Open a new terminal and run: bunx @marshell/chifu-wizard"
     exit 1
   fi
   info "Bun installed."
@@ -51,4 +51,4 @@ fi
 
 info "Launching the chifu wizard…"
 # Forward any args passed after `-s --` to the wizard.
-exec "$BUN_BIN" x @mfinikov/chifu-wizard "$@"
+exec "$BUN_BIN" x @marshell/chifu-wizard "$@"
