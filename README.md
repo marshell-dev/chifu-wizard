@@ -1,13 +1,11 @@
 # chifu-wizard
 
-One-command setup for [chifu](https://marshell.dev) — the dependency-security
-layer for AI coding agents. The wizard installs the `chifu` CLI, teaches your
-coding agent (Claude Code, Cursor, Windsurf) to check changed dependencies for
-known CVEs and fix them, and optionally saves your API key.
+The installer for **[chifu](https://marshell.dev)** — the dependency-security
+layer for AI coding agents. One command installs the `chifu` CLI, teaches your
+coding agent to check changed dependencies for known CVEs (and fix them), and
+optionally saves your API key. CLI + agent skill, no MCP.
 
-## Quick start
-
-You don't need Bun first — the bootstrap scripts install it for you.
+## Install
 
 **macOS / Linux**
 
@@ -21,7 +19,8 @@ curl -fsSL https://marshell.dev/install.sh | sh
 irm https://marshell.dev/install.ps1 | iex
 ```
 
-Already have Bun (or Node)? Run the wizard directly:
+The one-liners install Bun if it's missing, then run the wizard. Already have
+Bun or Node? Skip the bootstrap and run the wizard directly:
 
 ```sh
 bunx @marshell/chifu-wizard
@@ -29,56 +28,40 @@ bunx @marshell/chifu-wizard
 npx @marshell/chifu-wizard
 ```
 
+Pass a key up front to skip the prompt:
+
+```sh
+bunx @marshell/chifu-wizard --api-key chf_xxx
+```
+
 ## What it does
 
-1. **Installs the chifu CLI.** Detects whether `chifu` is on your PATH; if not,
-   installs it globally with `npm i -g @marshell/chifu` (falling back to `bun add -g
-   chifu`) and tells you which one it used. The CLI also works via `bunx @marshell/chifu`
-   with no global install, so this step is optional.
-2. **Wires up your AI coding agents.** For each agent it finds:
-   - **Claude Code** (`~/.claude` or `claude` on PATH) → installs the skill at
-     `~/.claude/skills/chifu-dep-guard/SKILL.md`.
-   - **Cursor** (`~/.cursor`) → writes a rule at
-     `~/.cursor/rules/chifu-dep-guard.mdc` that points the agent at the chifu
-     CLI.
-   - **Windsurf** (best-effort, optional) → writes a rule under
-     `~/.codeium/windsurf/`.
-3. **Saves an optional API key.** Paste a `chf_…` key to sync scan results to
-   your dashboard, or skip it — `chifu check` works fully anonymously.
-4. **Sets an optional custom backend URL** (defaults to
-   `https://api.marshell.dev`).
+1. **Installs the chifu CLI.** If `chifu` isn't on your PATH, installs it
+   globally (`npm i -g @marshell/chifu`, falling back to `bun add -g`). The CLI
+   also runs via `bunx @marshell/chifu` with no global install, so this step is
+   optional.
+2. **Wires up every AI coding agent it detects.** For each one it translates the
+   bundled skill (`assets/SKILL.md`) into that agent's native instruction format
+   and drops it in the right place. See [Supported agents](#supported-agents).
+3. **Saves an optional API key** so scan results sync to your dashboard. Skip it
+   and `chifu check` still runs fully anonymously.
+4. **Sets an optional custom backend URL** (defaults to `https://api.marshell.dev`).
 5. **Prints a short how-to.**
 
-The chifu skill is bundled with the wizard (`assets/SKILL.md`), so it works
-offline and is fully self-contained.
+The skill is bundled with the wizard, so it works offline and is fully
+self-contained.
 
-## Using it after setup
-
-Open your AI coding agent in a project, add or upgrade a dependency, and ask it
-to check your dependencies for vulnerabilities. The agent runs `chifu check
---json`, reads the findings, upgrades the vulnerable packages, and handles any
-breaking changes — before you merge.
-
-You can also run it yourself anytime:
-
-```sh
-chifu check                 # human-readable report for the current project
-chifu check --json          # machine-readable (what the agent uses)
-chifu check --fail-on-findings   # non-zero exit for CI gates
-```
-
-## Non-interactive / CI
-
-Every prompt has a flag so the wizard can run unattended:
-
-```sh
-bunx @marshell/chifu-wizard --yes
-```
+## Options
 
 | Flag | Effect |
 |---|---|
-| `-y`, `--yes` | Accept all defaults, no prompts |
-| `--no-interactive`, `--ci` | Same as `--yes` |
+| `-y`, `--yes` | Accept all defaults, no prompts (interactive-safe) |
+| `--ci` | Non-interactive defaults (alias of `--no-interactive`) |
+| `--no-interactive` | Same as `--ci` |
+| `--json` | Print a machine-readable JSON result of what was installed |
+| `--agent` | Print an onboarding prompt for an external coding agent and exit (no side effects) |
+| `--all-agents` | Install into every detected agent without per-agent prompts |
+| `--target <name>` | Only install into these agents — repeatable or comma-separated (`claude`, `cursor`, `windsurf`, `codex`, `opencode`, `gemini`, `cline`) |
 | `--skip-cli` | Don't install the chifu CLI |
 | `--skip-agents` | Don't touch any agent config |
 | `--api-key <key>` | Save this `chf_…` key (also reads `CHIFU_API_KEY`) |
@@ -86,26 +69,95 @@ bunx @marshell/chifu-wizard --yes
 | `-h`, `--help` | Show help |
 | `-v`, `--version` | Show the version |
 
-In a piped install one-liner, forward args after `-s --`:
+Forward args through the piped one-liners:
 
 ```sh
-curl -fsSL https://marshell.dev/install.sh | sh -s -- --yes
+curl -fsSL https://marshell.dev/install.sh | sh -s -- --yes --all-agents
 ```
-
-On Windows, set `$ChifuWizardArgs` before piping:
 
 ```powershell
-$ChifuWizardArgs = '--yes'; irm https://marshell.dev/install.ps1 | iex
+$ChifuWizardArgs = '--yes --all-agents'; irm https://marshell.dev/install.ps1 | iex
 ```
 
-## Where things get written
+## Authentication
 
-| What | Location |
-|---|---|
-| chifu config / API key | `~/.config/chifu/config.json` (or `%APPDATA%\chifu` on Windows), mode `600` |
-| Claude Code skill | `~/.claude/skills/chifu-dep-guard/SKILL.md` |
-| Cursor rule | `~/.cursor/rules/chifu-dep-guard.mdc` |
-| Windsurf rule | `~/.codeium/windsurf/memories/chifu-dep-guard.md` |
+chifu works anonymously — a key only syncs results to your dashboard. When you
+do want a key, you have two paths:
+
+- **Browser device-pairing (recommended).** Run `chifu login`; it opens a
+  pairing URL/code you confirm in the browser, then writes the key to your local
+  config. No copy-pasting secrets.
+- **Manual key.** Copy a key from the dashboard
+  ([app.marshell.dev](https://app.marshell.dev)) and either pass it to the wizard
+  (`--api-key chf_…`), set `CHIFU_API_KEY`, or run `chifu login chf_…`.
+
+Keys are stored at `~/.config/chifu/config.json` (or `%APPDATA%\chifu` on
+Windows) with mode `600`.
+
+## Supported agents
+
+The wizard detects each agent by its config directory (or binary on PATH) and
+writes the skill in that agent's native format. Adapters are independent — one
+failing never blocks the others. Formats marked *best-effort* follow the most
+reasonable convention for that tool; adjust to taste.
+
+| Agent | Detected via | Format | Location |
+|---|---|---|---|
+| Claude Code | `~/.claude` / `claude` on PATH | skill | `~/.claude/skills/chifu-dep-guard/SKILL.md` |
+| Cursor | `~/.cursor` | `.mdc` project rule | `~/.cursor/rules/chifu-dep-guard.mdc` |
+| Windsurf | `~/.codeium/windsurf` | markdown rule *(best-effort)* | `~/.codeium/windsurf/memories/chifu-dep-guard.md` |
+| Codex | `~/.codex` / `codex` on PATH | `AGENTS.md` block *(best-effort)* | `~/.codex/AGENTS.md` |
+| OpenCode | `~/.config/opencode` or `~/.opencode` | `AGENTS.md` block *(best-effort)* | `…/opencode/AGENTS.md` |
+| Gemini CLI | `~/.gemini` / `gemini` on PATH | `GEMINI.md` block *(best-effort)* | `~/.gemini/GEMINI.md` |
+| Cline | `~/.clinerules` | rule file *(best-effort)* | `~/.clinerules/chifu-dep-guard.md` |
+
+`AGENTS.md` / `GEMINI.md` writes are **idempotent**: the wizard inserts a
+clearly delimited `## chifu` block (between `<!-- chifu:begin -->` and
+`<!-- chifu:end -->`) and replaces just that block on re-run, leaving the rest
+of your file untouched.
+
+Use `--target` to pick specific agents or `--all-agents` to install into every
+detected one:
+
+```sh
+bunx @marshell/chifu-wizard --target claude,codex
+bunx @marshell/chifu-wizard --all-agents --yes
+```
+
+## How it works
+
+chifu is a CLI plus an agent skill — there is no MCP server to run.
+
+- **The CLI does detection.** `chifu check --json` resolves the project's
+  dependency tree and matches it against known CVEs, then prints the actionable
+  upgrades (one entry per vulnerable package, collapsed to the single version
+  that clears all of its CVEs) plus the per-advisory detail.
+- **The agent does the fixing.** The installed skill tells your agent *when* to
+  run chifu (any time it adds, upgrades, or changes a dependency, and before
+  finishing a task) and *how* to act on the output — upgrade to the recommended
+  version, handle breaking changes from the advisory, re-check, then report.
+- **The wizard wires the two together** so your agent reaches for chifu
+  automatically instead of guessing whether a dependency is safe.
+
+After setup, open your agent in a project, add or upgrade a dependency, and ask
+it to check your dependencies for vulnerabilities. Or run it yourself:
+
+```sh
+chifu check                      # human-readable report for the current project
+chifu check --json               # machine-readable (what the agent uses)
+chifu check --fail-on-findings   # non-zero exit for CI gates
+```
+
+### Onboarding an agent without the wizard
+
+`chifu-wizard --agent` prints a self-contained prompt (no side effects) that you
+can paste into any coding agent to have it set chifu up itself — detect a
+runtime, install the CLI, authenticate, confirm `chifu check` works, and install
+the skill:
+
+```sh
+bunx @marshell/chifu-wizard --agent
+```
 
 ## License
 

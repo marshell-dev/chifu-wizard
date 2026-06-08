@@ -1,15 +1,22 @@
 // Step 2 — detect installed AI coding agents and teach each one about chifu.
 //
-//   Claude Code  → drop the skill at ~/.claude/skills/chifu-dep-guard/SKILL.md
-//   Cursor       → write a rule (.mdc) pointing the agent at the chifu CLI
-//   Windsurf     → best-effort rule/memory file
+// Each supported agent is modeled as a small, independent *adapter*: it knows
+// how to detect itself (by config directory or binary on PATH), where its
+// instruction file lives, and how to render the bundled skill (assets/SKILL.md)
+// into that agent's native format. Every adapter is best-effort — a failure for
+// one agent never aborts the others or the wizard.
 //
-// Detection is by the agent's home directory (or its binary on PATH). Each
-// install is independent and best-effort: a failure for one agent never aborts
-// the others or the wizard.
+// Supported targets:
+//   claude    Claude Code → ~/.claude/skills/chifu-dep-guard/SKILL.md (skill)
+//   cursor    Cursor      → ~/.cursor/rules/chifu-dep-guard.mdc (.mdc rule)
+//   windsurf  Windsurf    → ~/.codeium/windsurf/memories/… (markdown rule)
+//   codex     Codex       → ~/.codex/AGENTS.md (delimited "## chifu" block)
+//   opencode  OpenCode    → ~/.config/opencode/AGENTS.md or ~/.opencode/AGENTS.md
+//   gemini    Gemini CLI  → ~/.gemini/GEMINI.md (delimited block)
+//   cline     Cline       → ~/.clinerules/chifu-dep-guard.md (rule file)
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import { onPath } from "../exec.ts";
 import { log, c, type Prompter } from "../ui.ts";
@@ -21,136 +28,347 @@ import {
   cursorRuleFile,
   windsurfDir,
   windsurfRuleFile,
+  codexDir,
+  codexAgentsFile,
+  opencodeXdgDir,
+  opencodeDir,
+  geminiDir,
+  geminiRuleFile,
+  clineRulesDir,
+  clineRuleFile,
   skillMarkdown,
 } from "../paths.ts";
 
+// Canonical target names, also accepted by the --target flag.
+export type AgentTarget =
+  | "claude"
+  | "cursor"
+  | "windsurf"
+  | "codex"
+  | "opencode"
+  | "gemini"
+  | "cline";
+
+export const ALL_TARGETS: AgentTarget[] = [
+  "claude",
+  "cursor",
+  "windsurf",
+  "codex",
+  "opencode",
+  "gemini",
+  "cline",
+];
+
+// Per-agent install outcome (what the --json output and summary consume).
+export interface AgentInstall {
+  target: AgentTarget;
+  label: string;
+  detected: boolean;
+  installed: boolean;
+  // Absolute path written (when installed), else the path we'd have used.
+  path: string | null;
+  note?: string;
+}
+
 export interface AgentResult {
+  installs: AgentInstall[];
+  any: boolean;
+  // Back-compat fields used by older callers / summaries.
   claude: boolean;
   cursor: boolean;
   windsurf: boolean;
-  any: boolean;
 }
+
+export interface InstallAgentsOptions {
+  assumeYes: boolean;
+  // When set, only operate on these targets (from --target). Detection still
+  // applies — an explicitly named-but-undetected target is reported, not forced.
+  only?: AgentTarget[];
+  // --all-agents: install into every detected target without per-agent prompts.
+  all?: boolean;
+}
+
+// ── shared rendering helpers ────────────────────────────────────────────────
+
+const BLOCK_BEGIN = "<!-- chifu:begin -->";
+const BLOCK_END = "<!-- chifu:end -->";
 
 function writeFileEnsuringDir(file: string, content: string): void {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, content, "utf8");
 }
 
-// Cursor consumes "rules", not skills. We translate the skill into a Project
-// Rule (.mdc) with frontmatter so Cursor can auto-attach it. The body reuses
-// the bundled skill content so behavior stays in sync with Claude Code.
-function cursorRuleContent(): string {
-  const body = skillMarkdown()
-    // Strip the skill's own YAML frontmatter; we supply Cursor-flavored
-    // frontmatter instead.
+// The skill body with its own YAML frontmatter stripped — reused by adapters
+// that supply their own header/frontmatter.
+function skillBody(): string {
+  return skillMarkdown()
     .replace(/^---\n[\s\S]*?\n---\n/, "")
     .trim();
-  return `---
+}
+
+// A short, agent-agnostic preamble prepended to rule/instruction formats so the
+// agent knows when and how to reach for chifu even without skill auto-loading.
+function rulePreamble(): string {
+  return `Apply this whenever you add, install, upgrade, pin, or change a dependency
+(editing package.json, running npm/bun/yarn install), and before finishing a
+task that touched dependencies. Run \`chifu check --json\` (or
+\`bunx @marshell/chifu check --json\` if the CLI isn't installed) and fix what it
+reports.`;
+}
+
+// Render a self-delimited "## chifu" block for AGENTS.md / GEMINI.md targets.
+// The delimiters make re-runs idempotent: we replace the block in place rather
+// than appending a duplicate.
+function chifuMarkdownBlock(): string {
+  return `${BLOCK_BEGIN}
+## chifu — dependency security
+
+${rulePreamble()}
+
+${skillBody()}
+${BLOCK_END}`;
+}
+
+// Insert-or-replace the chifu block in an existing markdown file's content.
+// Preserves everything the user already had outside our delimiters.
+function upsertBlock(existing: string, block: string): string {
+  const begin = existing.indexOf(BLOCK_BEGIN);
+  const end = existing.indexOf(BLOCK_END);
+  if (begin !== -1 && end !== -1 && end > begin) {
+    const before = existing.slice(0, begin);
+    const after = existing.slice(end + BLOCK_END.length);
+    return (before + block + after).replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+  }
+  const base = existing.trim();
+  return (base ? base + "\n\n" : "") + block + "\n";
+}
+
+// Write the chifu block into an AGENTS.md/GEMINI.md-style file idempotently.
+function upsertMarkdownFile(file: string): void {
+  let existing = "";
+  try {
+    existing = readFileSync(file, "utf8");
+  } catch {
+    existing = "";
+  }
+  writeFileEnsuringDir(file, upsertBlock(existing, chifuMarkdownBlock()));
+}
+
+// ── adapter model ───────────────────────────────────────────────────────────
+
+interface Adapter {
+  target: AgentTarget;
+  label: string;
+  // Best-effort label for the agent's instruction format (for transparency).
+  format: string;
+  // Detect by config dir and/or binary on PATH. Returns the dir we matched (for
+  // messaging) or null.
+  detect(): { detected: boolean; reason: string };
+  // The path we will write to (may depend on which dir exists).
+  resolvePath(): string;
+  // Perform the write. Throws on failure (caller catches and reports).
+  apply(path: string): void;
+}
+
+const adapters: Adapter[] = [
+  {
+    target: "claude",
+    label: "Claude Code",
+    format: "skill",
+    detect: () =>
+      existsSync(claudeDir) || onPath("claude")
+        ? { detected: true, reason: claudeDir }
+        : { detected: false, reason: "no ~/.claude, `claude` not on PATH" },
+    resolvePath: () => claudeSkillFile,
+    apply: () => {
+      mkdirSync(claudeSkillDir, { recursive: true });
+      writeFileSync(claudeSkillFile, skillMarkdown(), "utf8");
+    },
+  },
+  {
+    target: "cursor",
+    label: "Cursor",
+    format: ".mdc rule",
+    detect: () =>
+      existsSync(cursorDir) || onPath("cursor")
+        ? { detected: true, reason: cursorDir }
+        : { detected: false, reason: "no ~/.cursor" },
+    resolvePath: () => cursorRuleFile,
+    apply: () => {
+      const content = `---
 description: chifu dep-guard — check changed dependencies for known CVEs and fix them.
 alwaysApply: false
 ---
 
 # chifu dep-guard (Cursor rule)
 
-Apply this whenever you add, install, upgrade, pin, or change a dependency
-(editing package.json, running npm/bun/yarn install), and before finishing a
-task that touched dependencies. Run \`chifu check --json\` (or \`bunx @marshell/chifu check
---json\` if the CLI isn't installed) and fix what it reports.
+${rulePreamble()}
 
-${body}
+${skillBody()}
 `;
-}
+      writeFileEnsuringDir(cursorRuleFile, content);
+    },
+  },
+  {
+    target: "windsurf",
+    label: "Windsurf",
+    format: "markdown rule",
+    detect: () =>
+      existsSync(windsurfDir) || onPath("windsurf")
+        ? { detected: true, reason: windsurfDir }
+        : { detected: false, reason: "no ~/.codeium/windsurf" },
+    resolvePath: () => windsurfRuleFile,
+    apply: () => {
+      writeFileEnsuringDir(windsurfRuleFile, skillMarkdown());
+    },
+  },
+  {
+    target: "codex",
+    label: "Codex",
+    format: "AGENTS.md block",
+    detect: () =>
+      existsSync(codexDir) || onPath("codex")
+        ? { detected: true, reason: codexDir }
+        : { detected: false, reason: "no ~/.codex" },
+    resolvePath: () => codexAgentsFile,
+    apply: (path) => upsertMarkdownFile(path),
+  },
+  {
+    target: "opencode",
+    label: "OpenCode",
+    format: "AGENTS.md block",
+    detect: () => {
+      if (existsSync(opencodeXdgDir)) return { detected: true, reason: opencodeXdgDir };
+      if (existsSync(opencodeDir)) return { detected: true, reason: opencodeDir };
+      if (onPath("opencode")) return { detected: true, reason: "`opencode` on PATH" };
+      return { detected: false, reason: "no ~/.config/opencode or ~/.opencode" };
+    },
+    resolvePath: () =>
+      existsSync(opencodeXdgDir)
+        ? join(opencodeXdgDir, "AGENTS.md")
+        : join(opencodeDir, "AGENTS.md"),
+    apply: (path) => upsertMarkdownFile(path),
+  },
+  {
+    target: "gemini",
+    label: "Gemini CLI",
+    format: "GEMINI.md block",
+    detect: () =>
+      existsSync(geminiDir) || onPath("gemini")
+        ? { detected: true, reason: geminiDir }
+        : { detected: false, reason: "no ~/.gemini" },
+    resolvePath: () => geminiRuleFile,
+    apply: (path) => upsertMarkdownFile(path),
+  },
+  {
+    target: "cline",
+    label: "Cline",
+    format: "rule file",
+    detect: () =>
+      existsSync(clineRulesDir)
+        ? { detected: true, reason: clineRulesDir }
+        : { detected: false, reason: "no ~/.clinerules" },
+    resolvePath: () => clineRuleFile,
+    apply: () => {
+      const content = `# chifu dep-guard (Cline rule)
 
-// Windsurf reads markdown "rules"/memories. Reuse the skill body verbatim.
-function windsurfRuleContent(): string {
-  return skillMarkdown();
-}
+${rulePreamble()}
+
+${skillBody()}
+`;
+      writeFileEnsuringDir(clineRuleFile, content);
+    },
+  },
+];
+
+// Whether an adapter's format is best-effort (we phrase its prompt as optional).
+const BEST_EFFORT: ReadonlySet<AgentTarget> = new Set<AgentTarget>([
+  "windsurf",
+  "codex",
+  "opencode",
+  "gemini",
+  "cline",
+]);
 
 export async function installAgents(
   prompt: Prompter,
-  assumeYes: boolean,
+  options: InstallAgentsOptions,
 ): Promise<AgentResult> {
   log.step("AI coding agents");
 
-  const result: AgentResult = {
-    claude: false,
-    cursor: false,
-    windsurf: false,
-    any: false,
-  };
+  const { assumeYes, only, all } = options;
+  const selected = only && only.length > 0 ? new Set(only) : null;
 
-  // ── Claude Code ───────────────────────────────────────────────────────────
-  const hasClaude = existsSync(claudeDir) || onPath("claude");
-  if (hasClaude) {
+  const installs: AgentInstall[] = [];
+
+  for (const adapter of adapters) {
+    if (selected && !selected.has(adapter.target)) continue;
+
+    const det = adapter.detect();
+    const record: AgentInstall = {
+      target: adapter.target,
+      label: adapter.label,
+      detected: det.detected,
+      installed: false,
+      path: null,
+    };
+
+    if (!det.detected) {
+      log.skip(`${adapter.label}: not detected (${det.reason})`);
+      record.note = `not detected: ${det.reason}`;
+      installs.push(record);
+      continue;
+    }
+
+    // Decide whether to install. --all-agents and --yes/--ci skip the prompt.
+    const optionalTag = BEST_EFFORT.has(adapter.target) ? " (best-effort)" : "";
     const go =
       assumeYes ||
-      (await prompt.confirm("Claude Code detected — install the chifu skill?", true));
-    if (go) {
-      try {
-        mkdirSync(claudeSkillDir, { recursive: true });
-        writeFileSync(claudeSkillFile, skillMarkdown(), "utf8");
-        log.ok(`Claude Code: skill installed → ${c.dim(claudeSkillFile)}`);
-        result.claude = true;
-      } catch (err) {
-        log.fail(`Claude Code: couldn't write skill (${(err as Error).message})`);
-      }
-    } else {
-      log.skip("Claude Code: skipped");
+      all ||
+      Boolean(selected) || // an explicitly-targeted, detected agent is implied
+      (await prompt.confirm(
+        `${adapter.label} detected — install the chifu ${adapter.format}?${optionalTag}`,
+        true,
+      ));
+
+    if (!go) {
+      log.skip(`${adapter.label}: skipped`);
+      record.note = "skipped by user";
+      installs.push(record);
+      continue;
     }
-  } else {
-    log.skip("Claude Code: not detected (no ~/.claude, `claude` not on PATH)");
+
+    const path = adapter.resolvePath();
+    record.path = path;
+    try {
+      adapter.apply(path);
+      record.installed = true;
+      const tag = BEST_EFFORT.has(adapter.target) ? c.dim(" [best-effort format]") : "";
+      log.ok(`${adapter.label}: ${adapter.format} installed → ${c.dim(path)}${tag}`);
+    } catch (err) {
+      record.note = `write failed: ${(err as Error).message}`;
+      log.fail(`${adapter.label}: couldn't write ${adapter.format} (${(err as Error).message})`);
+    }
+
+    installs.push(record);
   }
 
-  // ── Cursor ────────────────────────────────────────────────────────────────
-  const hasCursor = existsSync(cursorDir) || onPath("cursor");
-  if (hasCursor) {
-    const go =
-      assumeYes ||
-      (await prompt.confirm("Cursor detected — add the chifu rule?", true));
-    if (go) {
-      try {
-        writeFileEnsuringDir(cursorRuleFile, cursorRuleContent());
-        log.ok(`Cursor: rule installed → ${c.dim(cursorRuleFile)}`);
-        result.cursor = true;
-      } catch (err) {
-        log.fail(`Cursor: couldn't write rule (${(err as Error).message})`);
-      }
-    } else {
-      log.skip("Cursor: skipped");
-    }
-  } else {
-    log.skip("Cursor: not detected (no ~/.cursor)");
-  }
+  const any = installs.some((i) => i.installed);
+  const byTarget = (t: AgentTarget) => installs.find((i) => i.target === t)?.installed ?? false;
 
-  // ── Windsurf (best-effort, clearly optional) ────────────────────────────────
-  const hasWindsurf = existsSync(windsurfDir) || onPath("windsurf");
-  if (hasWindsurf) {
-    const go =
-      assumeYes ||
-      (await prompt.confirm("Windsurf detected — add the chifu rule? (optional)", true));
-    if (go) {
-      try {
-        writeFileEnsuringDir(windsurfRuleFile, windsurfRuleContent());
-        log.ok(`Windsurf: rule installed → ${c.dim(windsurfRuleFile)}`);
-        result.windsurf = true;
-      } catch (err) {
-        log.fail(`Windsurf: couldn't write rule (${(err as Error).message})`);
-      }
-    } else {
-      log.skip("Windsurf: skipped");
-    }
-  } else {
-    log.skip("Windsurf: not detected (optional)");
-  }
-
-  result.any = result.claude || result.cursor || result.windsurf;
-
-  if (!hasClaude && !hasCursor && !hasWindsurf) {
+  const anyDetected = installs.some((i) => i.detected);
+  if (!anyDetected) {
     log.warn(
       "No supported AI coding agent detected. The chifu CLI still works on its " +
-        "own — install Claude Code or Cursor and re-run this wizard to wire it up.",
+        "own — install an agent (Claude Code, Cursor, Codex, …) and re-run this wizard.",
     );
   }
 
-  return result;
+  return {
+    installs,
+    any,
+    claude: byTarget("claude"),
+    cursor: byTarget("cursor"),
+    windsurf: byTarget("windsurf"),
+  };
 }

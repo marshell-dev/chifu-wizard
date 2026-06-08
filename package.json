@@ -15,11 +15,14 @@
   "publishConfig": {
     "access": "public"
   },
+  "engines": {
+    "node": ">=18"
+  },
   "bin": {
-    "chifu-wizard": "src/cli.ts"
+    "chifu-wizard": "dist/cli.js"
   },
   "files": [
-    "src",
+    "dist",
     "assets",
     "install.sh",
     "install.ps1",
@@ -28,7 +31,10 @@
   ],
   "scripts": {
     "start": "bun run src/cli.ts",
-    "typecheck": "tsc --noEmit"
+    "agent": "bun run src/cli.ts --agent",
+    "build": "bun run scripts/build.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
   },
   "keywords": [
     "chifu",
@@ -42,6 +48,11 @@
     "claude-code",
     "cursor",
     "windsurf",
+    "codex",
+    "opencode",
+    "gemini-cli",
+    "cline",
+    "agents-md",
     "skill"
   ],
   "devDependencies": {

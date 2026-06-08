@@ -44,6 +44,32 @@ export const cursorRuleFile = join(cursorRulesDir, "chifu-dep-guard.mdc");
 export const windsurfDir = join(home, ".codeium", "windsurf");
 export const windsurfRuleFile = join(windsurfDir, "memories", "chifu-dep-guard.md");
 
+// ── AGENTS.md-style targets (cross-agent standard) ──────────────────────────
+// AGENTS.md is a shared convention read by Codex, OpenCode and others. We
+// append a clearly delimited "## chifu" block to the tool's *global* agents
+// file, detecting each tool by its config directory.
+
+export const codexDir = join(home, ".codex");
+export const codexAgentsFile = join(codexDir, "AGENTS.md");
+
+// OpenCode has two known layouts in the wild; we detect either dir and write
+// the AGENTS.md inside whichever exists (preferring the XDG-style config dir).
+export const opencodeXdgDir = join(
+  process.env.XDG_CONFIG_HOME || join(home, ".config"),
+  "opencode",
+);
+export const opencodeDir = join(home, ".opencode");
+
+// ── Gemini CLI ──────────────────────────────────────────────────────────────
+// Gemini CLI reads GEMINI.md-style context/instruction files from ~/.gemini.
+export const geminiDir = join(home, ".gemini");
+export const geminiRuleFile = join(geminiDir, "GEMINI.md");
+
+// ── Cline ─────────────────────────────────────────────────────────────────--
+// Cline reads global rules from ~/.clinerules (a folder of markdown rule files).
+export const clineRulesDir = join(home, ".clinerules");
+export const clineRuleFile = join(clineRulesDir, "chifu-dep-guard.md");
+
 // ── bundled skill content ────────────────────────────────────────────────────
 
 let cachedSkill: string | null = null;
