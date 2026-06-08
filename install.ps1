@@ -31,7 +31,7 @@ if ($bun) {
     Invoke-RestMethod -Uri 'https://bun.sh/install.ps1' | Invoke-Expression
   } catch {
     Write-Warn "Failed to install Bun automatically: $($_.Exception.Message)"
-    Write-Warn 'Install Bun manually from https://bun.sh then re-run: bunx chifu-wizard'
+    Write-Warn 'Install Bun manually from https://bun.sh then re-run: bunx @marshell/chifu-wizard'
     exit 1
   }
   # Make the freshly-installed bun discoverable in this session.
@@ -39,7 +39,7 @@ if ($bun) {
   if (Test-Path $bunBin) { $env:PATH = "$bunBin;$env:PATH" }
   $bun = Find-Bun
   if (-not $bun) {
-    Write-Warn 'Bun installed but could not be located. Open a new terminal and run: bunx chifu-wizard'
+    Write-Warn 'Bun installed but could not be located. Open a new terminal and run: bunx @marshell/chifu-wizard'
     exit 1
   }
   Write-Info 'Bun installed.'
@@ -49,5 +49,5 @@ Write-Info 'Launching the chifu wizard...'
 # Forward optional args set by the caller (irm|iex cannot pass positional args).
 $wizardArgs = @()
 if ($ChifuWizardArgs) { $wizardArgs = $ChifuWizardArgs -split '\s+' }
-& $bun x chifu-wizard @wizardArgs
+& $bun x @marshell/chifu-wizard @wizardArgs
 exit $LASTEXITCODE

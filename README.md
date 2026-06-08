@@ -24,16 +24,16 @@ irm https://marshell.dev/install.ps1 | iex
 Already have Bun (or Node)? Run the wizard directly:
 
 ```sh
-bunx chifu-wizard
+bunx @marshell/chifu-wizard
 # or
-npx chifu-wizard
+npx @marshell/chifu-wizard
 ```
 
 ## What it does
 
 1. **Installs the chifu CLI.** Detects whether `chifu` is on your PATH; if not,
-   installs it globally with `npm i -g chifu` (falling back to `bun add -g
-   chifu`) and tells you which one it used. The CLI also works via `bunx chifu`
+   installs it globally with `npm i -g @marshell/chifu` (falling back to `bun add -g
+   chifu`) and tells you which one it used. The CLI also works via `bunx @marshell/chifu`
    with no global install, so this step is optional.
 2. **Wires up your AI coding agents.** For each agent it finds:
    - **Claude Code** (`~/.claude` or `claude` on PATH) → installs the skill at
@@ -72,7 +72,7 @@ chifu check --fail-on-findings   # non-zero exit for CI gates
 Every prompt has a flag so the wizard can run unattended:
 
 ```sh
-bunx chifu-wizard --yes
+bunx @marshell/chifu-wizard --yes
 ```
 
 | Flag | Effect |

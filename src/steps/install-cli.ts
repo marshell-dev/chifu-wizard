@@ -3,7 +3,7 @@
 // If it's already resolvable we leave it alone. Otherwise we try a global npm
 // install first (most universal), then fall back to `bun add -g`. We report
 // which manager succeeded, and we don't hard-fail the wizard if neither works —
-// the agent skill can still fall back to `bunx chifu` at runtime.
+// the agent skill can still fall back to `bunx @marshell/chifu` at runtime.
 
 import { run, onPath, works } from "../exec.ts";
 import { log, c, type Prompter } from "../ui.ts";
@@ -32,14 +32,14 @@ export async function installCli(prompt: Prompter, assumeYes: boolean): Promise<
     assumeYes ||
     (await prompt.confirm("Install the chifu CLI globally now?", true));
   if (!proceed) {
-    log.skip("Skipped CLI install — your agent can still use `bunx chifu`");
+    log.skip("Skipped CLI install — your agent can still use `bunx @marshell/chifu`");
     return { present: false, installedVia: null };
   }
 
   // Try npm first (broadest reach), then bun.
   if (onPath("npm")) {
-    log.info("Installing via npm (npm i -g chifu)…");
-    const r = run("npm", ["install", "-g", "chifu"], { capture: true });
+    log.info("Installing via npm (npm i -g @marshell/chifu)…");
+    const r = run("npm", ["install", "-g", "@marshell/chifu"], { capture: true });
     if (r.ok && chifuWorks()) {
       log.ok(`Installed ${c.bold("chifu")} via npm`);
       return { present: true, installedVia: "npm" };
@@ -50,8 +50,8 @@ export async function installCli(prompt: Prompter, assumeYes: boolean): Promise<
   }
 
   if (onPath("bun")) {
-    log.info("Installing via bun (bun add -g chifu)…");
-    const r = run("bun", ["add", "-g", "chifu"], { capture: true });
+    log.info("Installing via bun (bun add -g @marshell/chifu)…");
+    const r = run("bun", ["add", "-g", "@marshell/chifu"], { capture: true });
     if (r.ok && chifuWorks()) {
       log.ok(`Installed ${c.bold("chifu")} via bun`);
       return { present: true, installedVia: "bun" };
@@ -63,8 +63,8 @@ export async function installCli(prompt: Prompter, assumeYes: boolean): Promise<
 
   log.fail(
     "Couldn't install the chifu CLI automatically. Install it yourself with " +
-      `${c.bold("npm i -g chifu")} or ${c.bold("bun add -g chifu")}.`,
+      `${c.bold("npm i -g @marshell/chifu")} or ${c.bold("bun add -g @marshell/chifu")}.`,
   );
-  log.info("Your agent can still run `bunx chifu check` without a global install.");
+  log.info("Your agent can still run `bunx @marshell/chifu check` without a global install.");
   return { present: false, installedVia: null };
 }

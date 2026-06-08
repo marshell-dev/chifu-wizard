@@ -2,7 +2,7 @@
 
 // chifu-wizard — one-command setup for chifu.
 //
-//   bunx chifu-wizard          (or: npx chifu-wizard)
+//   bunx @marshell/chifu-wizard          (or: npx @marshell/chifu-wizard)
 //
 // Walks a developer through everything needed to make their AI coding agent
 // dependency-security aware:
@@ -61,8 +61,8 @@ function parseArgs(argv: string[]): Args {
 const HELP = `${c.bold("chifu-wizard")} ${VERSION} — set up chifu for your AI coding agent
 
 ${c.bold("Usage:")}
-  bunx chifu-wizard [options]
-  npx  chifu-wizard [options]
+  bunx @marshell/chifu-wizard [options]
+  npx @marshell/chifu-wizard [options]
 
 ${c.bold("What it does:")}
   • installs the chifu CLI globally if it's missing
@@ -98,13 +98,13 @@ function printSummary(opts: {
     const via = opts.installedVia ? ` (installed via ${opts.installedVia})` : "";
     log.ok(`chifu CLI ready${via}`);
   } else {
-    log.warn("chifu CLI not installed — your agent will fall back to `bunx chifu`");
+    log.warn("chifu CLI not installed — your agent will fall back to `bunx @marshell/chifu`");
   }
 
   if (opts.agentsConfigured) {
     log.ok("Your AI coding agent now knows how to check dependencies for CVEs");
   } else {
-    log.info("No agent was configured — install one and re-run `bunx chifu-wizard`");
+    log.info("No agent was configured — install one and re-run `bunx @marshell/chifu-wizard`");
   }
 
   log.ok(
