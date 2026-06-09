@@ -16,6 +16,7 @@
 // doesn't crash the read.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomBytes, createHash } from "node:crypto";
 import { z } from "zod";
 import { parse as parseJsonc } from "jsonc-parser";
 
@@ -93,13 +94,31 @@ function envelopeSchema<T extends z.ZodTypeAny>(data: T) {
   });
 }
 
+// PKCE proof-of-possession (RFC 7636 S256), mirroring chifu-cli/src/api.ts
+// generatePkcePair. We keep `verifier` private and only ever send `challenge`
+// (its SHA-256 hash) to the server at create time, then present the raw
+// `verifier` on each poll. This binds the minted key to THIS wizard process: a
+// `sid` that leaks via the browser URL (the cli-onboarding link now carries it)
+// can't redeem the key without the verifier the attacker never saw.
+interface PkcePair {
+  verifier: string;
+  challenge: string;
+}
+
+function generatePkcePair(): PkcePair {
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
 // Mint a pairing session (POST /api/v1/cli/session, no auth). Mirrors the CLI's
-// postCliSessionCreate so the two stay on the same contract.
-async function createSession(apiUrl: string): Promise<SessionCreate> {
+// postCliSessionCreate so the two stay on the same contract — including the
+// optional `code_challenge` PKCE binding (the backend accepts it optionally).
+async function createSession(apiUrl: string, codeChallenge: string): Promise<SessionCreate> {
   const res = await fetch(`${apiUrl}/api/v1/cli/session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ code_challenge: codeChallenge }),
   });
   const raw = (await res.json().catch(() => null)) as unknown;
   const env = envelopeSchema(SessionCreateSchema).safeParse(raw);
@@ -110,13 +129,19 @@ async function createSession(apiUrl: string): Promise<SessionCreate> {
   return env.data.data;
 }
 
-// Poll a pairing session (GET /api/v1/cli/session?sid=…, no auth). A 404/410
-// (missing/expired/consumed) throws with the server's message.
-async function pollSession(apiUrl: string, sid: string): Promise<SessionStatus> {
-  const res = await fetch(`${apiUrl}/api/v1/cli/session?sid=${encodeURIComponent(sid)}`, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
+// Poll a pairing session (GET /api/v1/cli/session?sid=…&verifier=…, no auth). A
+// 404/410 (missing/expired/consumed) throws with the server's message. The
+// `verifier` is the PKCE secret the server hashes and compares against the
+// challenge bound at create time — it enforces it only when a challenge was
+// stored, so the wizard stays on the CLI's getCliSession wire contract.
+async function pollSession(apiUrl: string, sid: string, verifier: string): Promise<SessionStatus> {
+  const res = await fetch(
+    `${apiUrl}/api/v1/cli/session?sid=${encodeURIComponent(sid)}&verifier=${encodeURIComponent(verifier)}`,
+    {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    },
+  );
   const raw = (await res.json().catch(() => null)) as unknown;
   const env = envelopeSchema(SessionStatusSchema).safeParse(raw);
   if (!res.ok || !env.success || env.data.error || !env.data.data) {
@@ -159,10 +184,16 @@ export async function signIn(_prompt: Prompter, opts: SignInOptions): Promise<bo
     return false;
   }
 
+  // PKCE: bind this pairing to THIS wizard process. We send only the challenge
+  // (hash) when minting the session and present the verifier on every poll, so
+  // the server hands the minted key to no one but us — even if the sid leaks
+  // (it travels in the cli-onboarding browser URL).
+  const { verifier, challenge } = generatePkcePair();
+
   // Mint a session, then open the browser to the onboarding page.
   let session: SessionCreate;
   try {
-    session = await createSession(opts.apiUrl);
+    session = await createSession(opts.apiUrl, challenge);
   } catch (err) {
     log.fail(`Couldn't start sign-in (${(err as Error).message}) — run \`chifu login\` to finish setup`);
     return false;
@@ -212,7 +243,7 @@ export async function signIn(_prompt: Prompter, opts: SignInOptions): Promise<bo
 
     let status: SessionStatus;
     try {
-      status = await pollSession(opts.apiUrl, session.sid);
+      status = await pollSession(opts.apiUrl, session.sid, verifier);
     } catch (err) {
       const msg = (err as Error).message;
       // A 404/410 means the session is gone — unrecoverable, stop polling.
