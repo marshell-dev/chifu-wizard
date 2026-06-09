@@ -31,11 +31,11 @@ import {
   outro,
   note,
   log,
-  c,
   makePrompter,
   setQuiet,
   type Prompter,
 } from "./ui.ts";
+import { buildSuccessOutro } from "./steps/outro.ts";
 import { installCli } from "./steps/install-cli.ts";
 import {
   installAgents,
@@ -210,25 +210,14 @@ interface RunResult {
 }
 
 function printSummary(result: RunResult): void {
-  if (!result.cli.present) {
-    log.warn("chifu CLI isn't on PATH — your agent will fall back to `bunx @marshell/chifu`");
-  }
-
   const names = result.agents.filter((a) => a.installed).map((a) => a.label);
-  if (names.length > 0) {
-    const verb = names.length === 1 ? "agent can" : "agents can";
-    log.ok(`Your ${verb} now check dependencies for CVEs: ${c.bold(names.join(", "))}`);
-  } else {
-    log.info("No supported agent detected — install one and re-run the wizard.");
-  }
-
-  note(
-    `Ask your coding agent ${c.cyan('"check my dependencies for vulnerabilities and fix them"')}\n` +
-      `Or run ${c.cyan("chifu check")} yourself.\n` +
-      `Docs: ${c.cyan("https://marshell.dev")}`,
-    "Try it",
+  outro(
+    buildSuccessOutro({
+      cliPresent: result.cli.present,
+      agents: names,
+      signedIn: result.apiKeyConfigured,
+    }),
   );
-  outro(c.green("chifu is ready"));
 }
 
 async function main(): Promise<number> {
@@ -260,7 +249,10 @@ async function main(): Promise<number> {
 
   if (!jsonMode) {
     intro(`${chalk.bgCyan.black.bold(" chifu wizard ")} ${chalk.dim("v" + VERSION)}`);
-    log.message(c.dim("make your AI coding agent dependency-security aware"));
+    note(
+      "Makes your AI coding agent dependency-security aware.\n" +
+        "Installs the chifu CLI + the dep-guard skill, then signs you in.",
+    );
   }
 
   try {

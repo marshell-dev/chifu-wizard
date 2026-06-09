@@ -169,13 +169,16 @@ export async function signIn(_prompt: Prompter, opts: SignInOptions): Promise<bo
     `${opts.webUrl}/cli-onboarding?code=${encodeURIComponent(session.code)}` +
     `&sid=${encodeURIComponent(session.sid)}`;
 
+  const expiresMin = Math.max(1, Math.floor(session.expiresInSeconds / 60));
   note(
-    `${c.bold("Your code:")} ${c.cyan(c.bold(session.code))}\n\n` +
-      `Opening ${c.dim(onboardingUrl)}\n` +
-      `If the browser didn't open, paste that URL in yourself, then authorize.`,
-    "Sign in to chifu",
+    `${c.bold("Your sign-in code")}\n\n` +
+      `    ${c.bold(c.green(session.code))}\n\n` +
+      c.dim(`Code expires in ${expiresMin} minutes`),
+    "Browser sign-in",
   );
+  log.info(`Opening ${c.cyan(onboardingUrl)}`);
   await openBrowser(onboardingUrl);
+  log.message(c.dim("If the browser didn't open, go to:\n") + `  ${c.cyan(onboardingUrl)}`);
 
   // Poll until authorized or the session expires (~10 min). Transient poll
   // errors don't abort — we keep trying until the deadline. A clack spinner
@@ -183,11 +186,24 @@ export async function signIn(_prompt: Prompter, opts: SignInOptions): Promise<bo
   const s = spinner();
   s.start("Waiting for you to authorize in your browser…");
   const deadline = Date.now() + Math.max(0, session.expiresInSeconds) * 1000;
+  let pollCount = 0;
   for (;;) {
-    if (Date.now() >= deadline) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
       s.stop("Timed out — continuing anonymously; run `chifu login` later", 1);
       return false;
     }
+
+    // Live countdown; every ~30s also surface the URL in case the browser
+    // never opened.
+    const totalSecs = Math.floor(remainingMs / 1000);
+    const clock = `${Math.floor(totalSecs / 60)}:${String(totalSecs % 60).padStart(2, "0")}`;
+    s.message(
+      pollCount > 0 && pollCount % 15 === 0
+        ? `Waiting for authorization… (${clock} left) — ${onboardingUrl}`
+        : `Waiting for you to authorize in your browser… (${clock} left)`,
+    );
+    pollCount++;
 
     await sleep(POLL_INTERVAL_MS);
 
