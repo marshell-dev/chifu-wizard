@@ -281,15 +281,6 @@ ${skillBody()}
   },
 ];
 
-// Whether an adapter's format is best-effort (we phrase its prompt as optional).
-const BEST_EFFORT: ReadonlySet<AgentTarget> = new Set<AgentTarget>([
-  "windsurf",
-  "codex",
-  "opencode",
-  "gemini",
-  "cline",
-]);
-
 export async function installAgents(
   prompt: Prompter,
   options: InstallAgentsOptions,
@@ -297,42 +288,69 @@ export async function installAgents(
   log.step("AI coding agents");
 
   const { assumeYes, only, all } = options;
-  const selected = only && only.length > 0 ? new Set(only) : null;
+  const onlySet = only && only.length > 0 ? new Set(only) : null;
 
   const installs: AgentInstall[] = [];
 
-  for (const adapter of adapters) {
-    if (selected && !selected.has(adapter.target)) continue;
+  // 1. Detect every candidate (filtered to --target when given). Probe once.
+  const detections = adapters
+    .filter((a) => !onlySet || onlySet.has(a.target))
+    .map((a) => ({ adapter: a, det: a.detect() }));
 
-    const det = adapter.detect();
+  // Record undetected ones quietly (kept for --json transparency, not printed).
+  for (const { adapter, det } of detections) {
+    if (!det.detected) {
+      installs.push({
+        target: adapter.target,
+        label: adapter.label,
+        detected: false,
+        installed: false,
+        path: null,
+        note: `not detected: ${det.reason}`,
+      });
+    }
+  }
+
+  const detected = detections.filter((d) => d.det.detected);
+  if (detected.length === 0) {
+    log.warn(
+      "No supported AI coding agent detected. The chifu CLI still works on its " +
+        "own — install an agent (Claude Code, Cursor, Codex, …) and re-run this wizard.",
+    );
+    return buildResult(installs);
+  }
+
+  // 2. Choose which detected agents get the skill. Interactive runs show a
+  //    pre-checked checklist; --yes/--ci/--all-agents/--target install every
+  //    detected agent (the choice was already made by the flag / non-TTY).
+  const interactive = !assumeYes && !all && !onlySet && Boolean(process.stdin.isTTY);
+  let chosen: Set<AgentTarget>;
+  if (interactive) {
+    const picked = await prompt.multiselect<AgentTarget>(
+      "Which agents should get the chifu skill?",
+      detected.map((d) => ({
+        value: d.adapter.target,
+        label: d.adapter.label,
+        hint: d.adapter.format,
+      })),
+      detected.map((d) => d.adapter.target), // everything pre-checked
+    );
+    chosen = new Set(picked);
+  } else {
+    chosen = new Set(detected.map((d) => d.adapter.target));
+  }
+
+  // 3. Install into the chosen agents; record the rest as skipped.
+  for (const { adapter } of detected) {
     const record: AgentInstall = {
       target: adapter.target,
       label: adapter.label,
-      detected: det.detected,
+      detected: true,
       installed: false,
       path: null,
     };
 
-    if (!det.detected) {
-      // Stay quiet about agents you don't have — only report what we touch.
-      record.note = `not detected: ${det.reason}`;
-      installs.push(record);
-      continue;
-    }
-
-    // Decide whether to install. --all-agents and --yes/--ci skip the prompt.
-    const optionalTag = BEST_EFFORT.has(adapter.target) ? " (best-effort)" : "";
-    const go =
-      assumeYes ||
-      all ||
-      Boolean(selected) || // an explicitly-targeted, detected agent is implied
-      (await prompt.confirm(
-        `${adapter.label} detected — install the chifu ${adapter.format}?${optionalTag}`,
-        true,
-      ));
-
-    if (!go) {
-      log.skip(`${adapter.label}: skipped`);
+    if (!chosen.has(adapter.target)) {
       record.note = "skipped by user";
       installs.push(record);
       continue;
@@ -348,24 +366,21 @@ export async function installAgents(
       record.note = `write failed: ${(err as Error).message}`;
       log.fail(`${adapter.label}: couldn't write ${adapter.format} (${(err as Error).message})`);
     }
-
     installs.push(record);
   }
 
-  const any = installs.some((i) => i.installed);
-  const byTarget = (t: AgentTarget) => installs.find((i) => i.target === t)?.installed ?? false;
-
-  const anyDetected = installs.some((i) => i.detected);
-  if (!anyDetected) {
-    log.warn(
-      "No supported AI coding agent detected. The chifu CLI still works on its " +
-        "own — install an agent (Claude Code, Cursor, Codex, …) and re-run this wizard.",
-    );
+  if (!installs.some((i) => i.installed)) {
+    log.skip("No agents selected.");
   }
 
+  return buildResult(installs);
+}
+
+function buildResult(installs: AgentInstall[]): AgentResult {
+  const byTarget = (t: AgentTarget) => installs.find((i) => i.target === t)?.installed ?? false;
   return {
     installs,
-    any,
+    any: installs.some((i) => i.installed),
     claude: byTarget("claude"),
     cursor: byTarget("cursor"),
     windsurf: byTarget("windsurf"),

@@ -18,6 +18,7 @@ import {
   spinner as clackSpinner,
   confirm as clackConfirm,
   select as clackSelect,
+  multiselect as clackMultiselect,
   text as clackText,
   isCancel as clackIsCancel,
   cancel as clackCancel,
@@ -164,6 +165,13 @@ export interface Prompter {
     options: { value: V; label: string; hint?: string }[],
     def: V,
   ): Promise<V>;
+  // Multi-choice checklist. Returns the chosen values; in non-interactive mode
+  // returns `initialValues` (everything pre-checked).
+  multiselect<V extends string>(
+    question: string,
+    options: { value: V; label: string; hint?: string }[],
+    initialValues: V[],
+  ): Promise<V[]>;
   close(): void;
 }
 
@@ -202,6 +210,22 @@ class ClackPrompter implements Prompter {
     return answer as V;
   }
 
+  async multiselect<V extends string>(
+    question: string,
+    options: { value: V; label: string; hint?: string }[],
+    initialValues: V[],
+  ): Promise<V[]> {
+    const answer = await clackMultiselect<V>({
+      message: question,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      options: options as any,
+      initialValues,
+      required: false,
+    });
+    bailIfCancelled(answer);
+    return answer as V[];
+  }
+
   close(): void {
     /* clack manages its own streams */
   }
@@ -221,6 +245,13 @@ class AutoPrompter implements Prompter {
     def: V,
   ): Promise<V> {
     return Promise.resolve(def);
+  }
+  multiselect<V extends string>(
+    _question: string,
+    _options: { value: V; label: string; hint?: string }[],
+    initialValues: V[],
+  ): Promise<V[]> {
+    return Promise.resolve(initialValues);
   }
   close(): void {
     /* nothing to close */

@@ -106,7 +106,7 @@ function buildParser(argv: string[]) {
         "  bunx @marshell/chifu-wizard [options]\n\n" +
         "What it does:\n" +
         "  1. installs the chifu CLI (if missing)\n" +
-        "  2. installs the chifu skill into your detected agents\n" +
+        "  2. lets you pick which detected agents get the chifu skill\n" +
         "     (Claude Code, Cursor, Windsurf, Codex, OpenCode, Gemini CLI, Cline)\n" +
         "  3. signs you in through your browser (a pairing code) — optional",
     )
@@ -139,7 +139,7 @@ function buildParser(argv: string[]) {
     .option("all-agents", {
       type: "boolean",
       default: false,
-      describe: "Install into every detected agent (default behavior)",
+      describe: "Install into every detected agent (skip the checklist)",
     })
     .option("skip-cli", {
       type: "boolean",
@@ -276,7 +276,9 @@ async function main(): Promise<number> {
       installedVia = r.installedVia;
     }
 
-    // 2. Skill → every detected agent, no per-agent prompts.
+    // 2. Skill → pick agents from a pre-checked checklist. Non-interactive
+    //    (--yes/--ci/--json), --all-agents, or --target install all detected
+    //    without prompting.
     let agents: AgentInstall[] = [];
     let agentsConfigured = false;
     if (args.skipAgents) {
@@ -284,9 +286,9 @@ async function main(): Promise<number> {
       log.skip("Skipped (--skip-agents)");
     } else {
       const r = await installAgents(prompt, {
-        assumeYes: true,
+        assumeYes: nonInteractive,
         only: args.targets,
-        all: true,
+        all: args.allAgents,
       });
       agents = r.installs;
       agentsConfigured = r.any;
