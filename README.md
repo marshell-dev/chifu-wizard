@@ -3,7 +3,7 @@
 The installer for **[chifu](https://marshell.dev)** — the dependency-security
 layer for AI coding agents. One command installs the `chifu` CLI, teaches your
 coding agent to check changed dependencies for known CVEs (and fix them), and
-optionally saves your API key. CLI + agent skill, no MCP.
+signs you in so your checks sync to your dashboard. CLI + agent skill, no MCP.
 
 ## Install
 
@@ -43,8 +43,8 @@ bunx @marshell/chifu-wizard --api-key chf_xxx
 2. **Wires up every AI coding agent it detects.** For each one it translates the
    bundled skill (`assets/SKILL.md`) into that agent's native instruction format
    and drops it in the right place. See [Supported agents](#supported-agents).
-3. **Saves an optional API key** so scan results sync to your dashboard. Skip it
-   and `chifu check` still runs fully anonymously.
+3. **Signs you in** (browser pairing) so your checks sync to your dashboard.
+   chifu needs an account — `chifu check` won't run until you've signed in.
 4. **Sets an optional custom backend URL** (defaults to `https://api.marshell.dev`).
 5. **Prints a short how-to.**
 
@@ -81,8 +81,7 @@ $ChifuWizardArgs = '--yes --all-agents'; irm https://marshell.dev/install.ps1 | 
 
 ## Authentication
 
-chifu works anonymously — a key only syncs results to your dashboard. When you
-do want a key, you have two paths:
+chifu requires an account — `chifu check` needs a `chf_` key. Get one two ways:
 
 - **Browser device-pairing (recommended).** Run `chifu login`; it opens a
   pairing URL/code you confirm in the browser, then writes the key to your local

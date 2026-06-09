@@ -9,7 +9,7 @@
 //   1. installs the `chifu` CLI globally (if missing),
 //   2. installs the chifu skill/rule into every detected agent (Claude Code,
 //      Cursor, Windsurf, Codex, OpenCode, Gemini CLI, Cline),
-//   3. signs in via browser pairing (optional — anonymous works too),
+//   3. signs in via browser pairing (required — chifu needs an account),
 //   4. prints how to use it.
 //
 // Designed to run from a piped one-liner (install.sh / install.ps1) as well as
@@ -111,7 +111,7 @@ function buildParser(argv: string[]) {
         "  1. installs the chifu CLI (if missing)\n" +
         "  2. lets you pick which detected agents get the chifu skill\n" +
         "     (Claude Code, Cursor, Windsurf, Codex, OpenCode, Gemini CLI, Cline)\n" +
-        "  3. signs you in through your browser (a pairing code) — optional",
+        "  3. signs you in through your browser (a pairing code) — required",
     )
     .option("yes", {
       alias: "y",
@@ -157,7 +157,7 @@ function buildParser(argv: string[]) {
     .option("skip-login", {
       type: "boolean",
       default: false,
-      describe: "Don't sign in (chifu still works anonymously)",
+      describe: "Don't sign in now (you'll need `chifu login` before chifu runs)",
     })
     .option("api-key", {
       type: "string",

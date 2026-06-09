@@ -26,14 +26,14 @@ verification step. If a step fails, report the failure and stop — do not guess
    The CLI also runs without a global install via \`bunx @marshell/chifu\`, so
    treat a failed global install as non-fatal and use the bunx form below.
 
-3. Authenticate (optional — chifu works anonymously, a key just syncs results to
-   the dashboard). Offer the user two choices and let them pick:
+3. Authenticate (REQUIRED — chifu needs an account; \`chifu check\` fails without
+   a key). Offer the user two choices and let them pick:
      a. Browser device-pairing:  chifu login
         This prints a URL/code to confirm in the browser. Hand the URL to the
         user; wait for them to approve.
      b. Manual key: tell the user to copy a key from the dashboard
         (https://marshell.dev) and run:  chifu login chf_xxx
-   If the user wants to stay anonymous, skip this step.
+   Do not skip this — without a key, step 4 fails with an auth error.
 
 4. Confirm the CLI works by running a real check in the project root:
      chifu check --json     # or: bunx @marshell/chifu check --json
@@ -46,10 +46,10 @@ verification step. If a step fails, report the failure and stop — do not guess
    Then verify a chifu instruction file now exists for your agent (e.g. a
    Claude Code skill, a Cursor rule, or a "## chifu" block in AGENTS.md).
 
-6. Report a one-line summary: runtime found, whether the CLI is installed,
-   whether a key was saved or you're running anonymously, and that \`chifu check\`
-   succeeded. From now on, run \`chifu check --json\` and fix what it reports
-   whenever you add, upgrade, or change a dependency.
+6. Report a one-line summary: runtime found, whether the CLI is installed, that
+   a key was saved (sign-in succeeded), and that \`chifu check\` succeeded. From
+   now on, run \`chifu check --json\` and fix what it reports whenever you add,
+   upgrade, or change a dependency.
 `;
 
 // Print the prompt to stdout with a trailing newline. Returns nothing; the

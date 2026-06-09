@@ -84,10 +84,11 @@ gets committed reaches production — catch and fix it before the commit, not af
    chifu check --json
    ```
 
-   No account or API key needed. If `chifu` isn't found, fall back to
-   `bunx @marshell/chifu@latest check --json`. If it errors (no network, or no
-   `package.json`/lockfile), report the exact error and stop — never guess
-   vulnerabilities yourself.
+   You must be signed in — chifu needs an account. If it reports you're not
+   authenticated, run `chifu login` first (or set `CHIFU_API_KEY`). If `chifu`
+   isn't found, fall back to `bunx @marshell/chifu@latest check --json`. If it
+   errors (no network, no `package.json`/lockfile, or not signed in), report the
+   exact error and stop — never guess vulnerabilities yourself.
 
 2. **Read the output.** `packages` is the actionable list (one entry per
    vulnerable package, collapsed to the single upgrade that clears its CVEs);

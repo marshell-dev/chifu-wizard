@@ -4,7 +4,8 @@
 // the sid + code), and POLLS the backend until the logged-in browser authorizes
 // the device — no manual code paste. On success it writes the freshly-minted
 // chf_ key to the chifu config (the exact path + format the CLI reads). chifu
-// works anonymously, so this is skippable.
+// REQUIRES an account, so this is the expected step — skipping it leaves chifu
+// unable to run until the user signs in later with `chifu login`.
 //
 // We do the session create + poll inline (rather than shelling out to
 // `chifu login`) so the wizard's sign-in works regardless of which CLI version
@@ -55,7 +56,8 @@ export interface SignInOptions {
   webUrl: string;
   // Pre-supplied key (flag/env) → save directly, skip the browser.
   apiKey?: string;
-  // --yes / --ci: no browser prompt; stay anonymous unless apiKey was given.
+  // --yes / --ci: no browser prompt; without a pre-supplied key the user must
+  // run `chifu login` afterwards (chifu needs an account to run).
   nonInteractive: boolean;
   // --skip-login.
   skip: boolean;
@@ -130,10 +132,10 @@ function sleep(ms: number): Promise<void> {
 
 // Returns true if a key ended up saved.
 export async function signIn(_prompt: Prompter, opts: SignInOptions): Promise<boolean> {
-  log.step("Sign in");
+  log.step("Sign in (required)");
 
   if (opts.skip) {
-    log.skip("Skipped (--skip-login) — chifu runs anonymously");
+    log.skip("Skipped (--skip-login) — chifu won't run until you sign in with `chifu login`");
     return false;
   }
 
@@ -150,9 +152,10 @@ export async function signIn(_prompt: Prompter, opts: SignInOptions): Promise<bo
     }
   }
 
-  // Non-interactive without a key: stay anonymous (don't block).
+  // Non-interactive without a key: we can't open a browser here. Don't hard-fail
+  // the install, but make clear chifu needs a login before it'll run.
   if (opts.nonInteractive) {
-    log.skip("No API key — running anonymously (run `chifu login` anytime)");
+    log.skip("No API key — run `chifu login` before using chifu (it needs an account)");
     return false;
   }
 
@@ -161,7 +164,7 @@ export async function signIn(_prompt: Prompter, opts: SignInOptions): Promise<bo
   try {
     session = await createSession(opts.apiUrl);
   } catch (err) {
-    log.fail(`Couldn't start sign-in (${(err as Error).message}) — continuing anonymously`);
+    log.fail(`Couldn't start sign-in (${(err as Error).message}) — run \`chifu login\` to finish setup`);
     return false;
   }
 
@@ -190,7 +193,7 @@ export async function signIn(_prompt: Prompter, opts: SignInOptions): Promise<bo
   for (;;) {
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) {
-      s.stop("Timed out — continuing anonymously; run `chifu login` later", 1);
+      s.stop("Timed out — run `chifu login` to finish signing in (chifu needs an account)", 1);
       return false;
     }
 
@@ -214,7 +217,7 @@ export async function signIn(_prompt: Prompter, opts: SignInOptions): Promise<bo
       const msg = (err as Error).message;
       // A 404/410 means the session is gone — unrecoverable, stop polling.
       if (/expired|not found|consumed|410|404/i.test(msg)) {
-        s.stop(`${msg} — continuing anonymously; run \`chifu login\` later`, 1);
+        s.stop(`${msg} — run \`chifu login\` to finish signing in`, 1);
         return false;
       }
       // Otherwise a transient blip — keep polling until the deadline.
