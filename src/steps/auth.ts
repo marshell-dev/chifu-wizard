@@ -1,12 +1,14 @@
-// Step 3 — Sign in (browser device-pairing), the same flow as `chifu login`.
+// Step 3 — Sign in (browser pairing, the same poll flow as `chifu login`).
 //
-// The wizard opens the dashboard's pairing page, the user signs in there and
-// copies the 6-character code it shows, pastes it back here, and we exchange it
-// for a freshly-minted chf_ API key and save it to the chifu config (the exact
-// path + format the CLI reads). chifu works anonymously, so this is skippable.
+// The wizard mints a pairing session, opens the onboarding page (which carries
+// the sid + code), and POLLS the backend until the logged-in browser authorizes
+// the device — no manual code paste. On success it writes the freshly-minted
+// chf_ key to the chifu config (the exact path + format the CLI reads). chifu
+// works anonymously, so this is skippable.
 //
-// We do the exchange inline (rather than shelling out to `chifu login`) so the
-// wizard's sign-in works regardless of which CLI version is installed.
+// We do the session create + poll inline (rather than shelling out to
+// `chifu login`) so the wizard's sign-in works regardless of which CLI version
+// is installed, and so the wizard package stays standalone.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
@@ -52,22 +54,53 @@ interface Envelope<T> {
   error: string | null;
 }
 
-// Trade a pairing code for a chf_ API key (POST /api/v1/cli/exchange, no auth).
-async function exchange(apiUrl: string, code: string): Promise<{ apiKey: string; org: string }> {
-  const res = await fetch(`${apiUrl}/api/v1/cli/exchange`, {
+const POLL_INTERVAL_MS = 2000;
+
+interface SessionCreate {
+  sid: string;
+  code: string;
+  expiresInSeconds: number;
+}
+
+type SessionStatus =
+  | { status: "pending" }
+  | { status: "authorized"; apiKey: string; org: string };
+
+// Mint a pairing session (POST /api/v1/cli/session, no auth). Mirrors the CLI's
+// postCliSessionCreate so the two stay on the same contract.
+async function createSession(apiUrl: string): Promise<SessionCreate> {
+  const res = await fetch(`${apiUrl}/api/v1/cli/session`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({}),
   });
-  const env = (await res.json().catch(() => null)) as Envelope<{ apiKey: string; org: string }> | null;
-  if (!res.ok || !env || env.error || !env.data?.apiKey) {
+  const env = (await res.json().catch(() => null)) as Envelope<SessionCreate> | null;
+  if (!res.ok || !env || env.error || !env.data?.sid || !env.data?.code) {
     throw new Error(env?.error || `sign-in failed (HTTP ${res.status})`);
   }
   return env.data;
 }
 
+// Poll a pairing session (GET /api/v1/cli/session?sid=…, no auth). A 404/410
+// (missing/expired/consumed) throws with the server's message.
+async function pollSession(apiUrl: string, sid: string): Promise<SessionStatus> {
+  const res = await fetch(`${apiUrl}/api/v1/cli/session?sid=${encodeURIComponent(sid)}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  const env = (await res.json().catch(() => null)) as Envelope<SessionStatus> | null;
+  if (!res.ok || !env || env.error || !env.data?.status) {
+    throw new Error(env?.error || `sign-in failed (HTTP ${res.status})`);
+  }
+  return env.data;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // Returns true if a key ended up saved.
-export async function signIn(prompt: Prompter, opts: SignInOptions): Promise<boolean> {
+export async function signIn(_prompt: Prompter, opts: SignInOptions): Promise<boolean> {
   log.step("Sign in");
 
   if (opts.skip) {
@@ -94,29 +127,57 @@ export async function signIn(prompt: Prompter, opts: SignInOptions): Promise<boo
     return false;
   }
 
-  const url = `${opts.webUrl}/dashboard/cli`;
-  log.info(`Opening ${c.cyan(url)} in your browser…`);
-  log.info("Sign in there, then copy the 6-character code it shows.");
-  openBrowser(url);
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const code = (await prompt.ask("Paste the code (or press Enter to skip)")).trim();
-    if (!code) {
-      log.skip("Skipped — chifu runs anonymously; run `chifu login` anytime");
-      return false;
-    }
-    try {
-      const { apiKey, org } = await exchange(opts.apiUrl, code);
-      writeConfig({ apiKey });
-      log.ok(`Signed in${org ? ` ${c.dim(`(${org})`)}` : ""}`);
-      return true;
-    } catch (err) {
-      log.fail(`${(err as Error).message} — try again, or press Enter to skip`);
-    }
+  // Mint a session, then open the browser to the onboarding page.
+  let session: SessionCreate;
+  try {
+    session = await createSession(opts.apiUrl);
+  } catch (err) {
+    log.fail(`Couldn't start sign-in (${(err as Error).message}) — continuing anonymously`);
+    return false;
   }
 
-  log.skip("Couldn't sign in — continuing anonymously; run `chifu login` later");
-  return false;
+  const onboardingUrl =
+    `${opts.webUrl}/cli-onboarding?code=${encodeURIComponent(session.code)}` +
+    `&sid=${encodeURIComponent(session.sid)}`;
+
+  log.info(`Opening ${c.cyan(onboardingUrl)} in your browser…`);
+  log.info(`Your code: ${c.bold(session.code)}`);
+  log.info("If the browser didn't open, paste that URL in yourself, then authorize.");
+  log.info("Waiting for you to authorize in the browser…");
+  openBrowser(onboardingUrl);
+
+  // Poll until authorized or the session expires (~10 min). Transient poll
+  // errors don't abort — we keep trying until the deadline.
+  const deadline = Date.now() + Math.max(0, session.expiresInSeconds) * 1000;
+  for (;;) {
+    if (Date.now() >= deadline) {
+      log.skip("Timed out — continuing anonymously; run `chifu login` later");
+      return false;
+    }
+
+    await sleep(POLL_INTERVAL_MS);
+
+    let status: SessionStatus;
+    try {
+      status = await pollSession(opts.apiUrl, session.sid);
+    } catch (err) {
+      const msg = (err as Error).message;
+      // A 404/410 means the session is gone — unrecoverable, stop polling.
+      if (/expired|not found|consumed|410|404/i.test(msg)) {
+        log.skip(`${msg} — continuing anonymously; run \`chifu login\` later`);
+        return false;
+      }
+      // Otherwise a transient blip — keep polling until the deadline.
+      continue;
+    }
+
+    if (status.status === "authorized") {
+      writeConfig({ apiKey: status.apiKey });
+      log.ok(`Signed in${status.org ? ` ${c.dim(`(${status.org})`)}` : ""}`);
+      return true;
+    }
+    // status === "pending": keep polling.
+  }
 }
 
 export function hasConfiguredKey(): boolean {
