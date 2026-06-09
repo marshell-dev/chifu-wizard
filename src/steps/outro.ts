@@ -1,7 +1,6 @@
 // Post-install success outro — scannable sections (what you got, how to use it,
-// example asks, links), rendered inside clack's outro box. Style mirrors
-// nia-wizard's buildSuccessOutro: a bold green title, a dim tagline, cyan
-// section headers, and dim-bulleted lines.
+// example asks, links), rendered inside clack's outro box: a bold green title,
+// a dim tagline, cyan section headers, and dim-bulleted lines.
 
 import chalk from "chalk";
 
