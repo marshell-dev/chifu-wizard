@@ -28,11 +28,9 @@ import {
   cursorRuleFile,
   windsurfDir,
   windsurfRuleFile,
-  codexDir,
   codexAgentsFile,
   opencodeXdgDir,
   opencodeDir,
-  geminiDir,
   geminiRuleFile,
   clineRulesDir,
   clineRuleFile,
@@ -226,10 +224,12 @@ ${skillBody()}
     target: "codex",
     label: "Codex",
     format: "AGENTS.md block",
+    // CLI agent — require the actual binary, not just a leftover ~/.codex dir,
+    // so we never install into an agent the user doesn't really have.
     detect: () =>
-      existsSync(codexDir) || onPath("codex")
-        ? { detected: true, reason: codexDir }
-        : { detected: false, reason: "no ~/.codex" },
+      onPath("codex")
+        ? { detected: true, reason: "`codex` on PATH" }
+        : { detected: false, reason: "`codex` not on PATH" },
     resolvePath: () => codexAgentsFile,
     apply: (path) => upsertMarkdownFile(path),
   },
@@ -237,12 +237,11 @@ ${skillBody()}
     target: "opencode",
     label: "OpenCode",
     format: "AGENTS.md block",
-    detect: () => {
-      if (existsSync(opencodeXdgDir)) return { detected: true, reason: opencodeXdgDir };
-      if (existsSync(opencodeDir)) return { detected: true, reason: opencodeDir };
-      if (onPath("opencode")) return { detected: true, reason: "`opencode` on PATH" };
-      return { detected: false, reason: "no ~/.config/opencode or ~/.opencode" };
-    },
+    // CLI agent — require the binary on PATH (a stray config dir isn't enough).
+    detect: () =>
+      onPath("opencode")
+        ? { detected: true, reason: "`opencode` on PATH" }
+        : { detected: false, reason: "`opencode` not on PATH" },
     resolvePath: () =>
       existsSync(opencodeXdgDir)
         ? join(opencodeXdgDir, "AGENTS.md")
@@ -253,10 +252,11 @@ ${skillBody()}
     target: "gemini",
     label: "Gemini CLI",
     format: "GEMINI.md block",
+    // CLI agent — require the `gemini` binary on PATH, not a leftover ~/.gemini.
     detect: () =>
-      existsSync(geminiDir) || onPath("gemini")
-        ? { detected: true, reason: geminiDir }
-        : { detected: false, reason: "no ~/.gemini" },
+      onPath("gemini")
+        ? { detected: true, reason: "`gemini` on PATH" }
+        : { detected: false, reason: "`gemini` not on PATH" },
     resolvePath: () => geminiRuleFile,
     apply: (path) => upsertMarkdownFile(path),
   },

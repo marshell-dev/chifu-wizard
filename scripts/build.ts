@@ -4,9 +4,14 @@
 // The wizard source ships a `#!/usr/bin/env bun` shebang and imports .ts files
 // with extensions (great for `bun run src/cli.ts` during dev), but the published
 // artifact must launch under plain Node so `npx @marshell/chifu-wizard` works
-// without Bun installed. `bun build --target=node` bundles everything into a
-// single dist/cli.js and inlines the bundled skill read, then we rewrite the
-// shebang to node. On POSIX we chmod +x; on Windows npm generates the shim.
+// without Bun installed.
+//
+// CRITICAL: build with `--packages=external` so third-party deps are NOT bundled
+// into dist/cli.js — they are imported at runtime from node_modules. This is
+// mandatory for `open`, which ships a helper script (xdg-open / a PowerShell
+// shim) that it resolves relative to its own file at runtime; bundling breaks
+// that resolution. Keeping everything external also keeps the bundle tiny and
+// the deps deduplicated by npm/bun at install time.
 //
 // Note: assets/SKILL.md is read at runtime via paths.ts (relative to the module),
 // so it is still shipped in the package "files" list and resolved next to dist/.
@@ -27,6 +32,9 @@ const result = await Bun.build({
   target: "node",
   outdir: join(root, "dist"),
   naming: "cli.js",
+  // Keep every third-party package external — dist/cli.js imports them from
+  // node_modules at runtime (especially `open`, which breaks when bundled).
+  packages: "external",
 });
 
 if (!result.success) {

@@ -6,7 +6,7 @@
 // the agent skill can still fall back to `bunx @marshell/chifu` at runtime.
 
 import { run, onPath, works } from "../exec.ts";
-import { log, c, type Prompter } from "../ui.ts";
+import { log, c, spinner, type Prompter } from "../ui.ts";
 
 export interface CliResult {
   present: boolean;
@@ -36,27 +36,29 @@ export async function installCli(prompt: Prompter, assumeYes: boolean): Promise<
     return { present: false, installedVia: null };
   }
 
-  // Try npm first (broadest reach), then bun.
+  // Try npm first (broadest reach), then bun. A spinner wraps each attempt.
   if (onPath("npm")) {
-    log.info("Installing via npm (npm i -g @marshell/chifu)…");
+    const s = spinner();
+    s.start("Installing chifu via npm (npm i -g @marshell/chifu)");
     const r = run("npm", ["install", "-g", "@marshell/chifu"], { capture: true });
     if (r.ok && chifuWorks()) {
-      log.ok(`Installed ${c.bold("chifu")} via npm`);
+      s.stop(`Installed ${c.bold("chifu")} via npm`);
       return { present: true, installedVia: "npm" };
     }
-    log.warn("npm install did not produce a working `chifu` — trying bun…");
+    s.stop("npm install did not produce a working `chifu` — trying bun…", 1);
   } else {
     log.skip("npm not found — trying bun…");
   }
 
   if (onPath("bun")) {
-    log.info("Installing via bun (bun add -g @marshell/chifu)…");
+    const s = spinner();
+    s.start("Installing chifu via bun (bun add -g @marshell/chifu)");
     const r = run("bun", ["add", "-g", "@marshell/chifu"], { capture: true });
     if (r.ok && chifuWorks()) {
-      log.ok(`Installed ${c.bold("chifu")} via bun`);
+      s.stop(`Installed ${c.bold("chifu")} via bun`);
       return { present: true, installedVia: "bun" };
     }
-    log.warn("bun install did not produce a working `chifu`");
+    s.stop("bun install did not produce a working `chifu`", 1);
   } else {
     log.skip("bun not found");
   }

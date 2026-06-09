@@ -6,8 +6,14 @@
 // command string rather than (command, args[], {shell:true}), because the
 // latter triggers Node's DEP0190 deprecation warning ("Passing args to a child
 // process with shell option true …"). On *nix we spawn directly (no shell).
+//
+// Browser opening is delegated to the `open` package, which handles every
+// platform (and its own DEP0190-free spawning) and ships the helper scripts it
+// needs at runtime — which is why the build keeps deps external (see
+// scripts/build.ts).
 
 import { spawnSync } from "node:child_process";
+import open from "open";
 
 const isWindows = process.platform === "win32";
 
@@ -67,16 +73,13 @@ export function works(cmd: string, args: string[]): boolean {
 }
 
 // Open a URL in the default browser. Best-effort + non-blocking — if it fails,
-// the caller has already printed the URL for the user to open manually.
-export function openBrowser(url: string): void {
+// the caller has already printed the URL for the user to open manually. We use
+// the `open` package (no DEP0190 warning, works on every platform).
+export async function openBrowser(url: string): Promise<void> {
   try {
-    if (isWindows) {
-      spawnSync(`start "" ${quoteArg(url)}`, { stdio: "ignore", shell: true });
-    } else if (process.platform === "darwin") {
-      spawnSync("open", [url], { stdio: "ignore" });
-    } else {
-      spawnSync("xdg-open", [url], { stdio: "ignore" });
-    }
+    // `wait: false` returns once the browser process is spawned; we don't block
+    // the poll loop on the browser staying open.
+    await open(url, { wait: false });
   } catch {
     /* best-effort — the URL was printed already */
   }

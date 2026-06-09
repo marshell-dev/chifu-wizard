@@ -9,17 +9,33 @@
 //   1. installs the `chifu` CLI globally (if missing),
 //   2. installs the chifu skill/rule into every detected agent (Claude Code,
 //      Cursor, Windsurf, Codex, OpenCode, Gemini CLI, Cline),
-//   3. optionally saves an API key (anonymous works too),
-//   4. optionally points at a custom backend URL,
-//   5. prints how to use it.
+//   3. signs in via browser pairing (optional — anonymous works too),
+//   4. prints how to use it.
 //
 // Designed to run from a piped one-liner (install.sh / install.ps1) as well as
 // interactively. Use --yes/--ci for a non-interactive run, --json for a
 // machine-readable result, and --agent to emit an onboarding prompt for an
-// external coding agent instead of running the wizard. Built on node: builtins
-// + Bun APIs only — no third-party dependencies.
+// external coding agent instead of running the wizard.
+//
+// UX is built on @clack/prompts (the boxed ┌ ◇ │ ◆ └ flow) + chalk; args are
+// parsed with yargs; backend responses validated with zod; the browser is
+// opened with `open`; and CHIFU_* env can come from a .env file (dotenv).
 
-import { log, c, makePrompter, type Prompter } from "./ui.ts";
+import { config as loadDotenv } from "dotenv";
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
+import chalk from "chalk";
+
+import {
+  intro,
+  outro,
+  note,
+  log,
+  c,
+  makePrompter,
+  setQuiet,
+  type Prompter,
+} from "./ui.ts";
 import { installCli } from "./steps/install-cli.ts";
 import {
   installAgents,
@@ -30,7 +46,16 @@ import {
 import { signIn, hasConfiguredKey } from "./steps/auth.ts";
 import { printAgentPrompt } from "./agent-prompt.ts";
 
+// Load CHIFU_API_URL / CHIFU_WEB_URL / CHIFU_API_KEY from a .env file if present.
+// Existing process env always wins (dotenv does not override by default).
+// `quiet` suppresses dotenv's startup banner so it never pollutes stdout — vital
+// for --json mode, which must emit only the result object.
+loadDotenv({ quiet: true });
+
 const VERSION = "0.1.0";
+
+const DEFAULT_API_URL = "https://api.marshell.dev";
+const DEFAULT_WEB_URL = "https://marshell.dev";
 
 interface Args {
   yes: boolean;
@@ -45,38 +70,19 @@ interface Args {
   apiKey?: string;
   apiUrl?: string;
   webUrl?: string;
-  help: boolean;
-  version: boolean;
   errors: string[];
 }
 
-const DEFAULT_API_URL = "https://api.marshell.dev";
-const DEFAULT_WEB_URL = "https://marshell.dev";
-
-function getOpt(argv: string[], name: string): string | undefined {
-  // Supports both `--flag value` and `--flag=value`.
-  const eq = argv.find((a) => a.startsWith(`${name}=`));
-  if (eq) return eq.slice(name.length + 1);
-  const i = argv.indexOf(name);
-  return i >= 0 && i + 1 < argv.length ? argv[i + 1] : undefined;
-}
-
-// Collect every value of a repeatable flag (e.g. --target a --target b) plus
-// comma-separated forms (--target a,b).
-function getOptAll(argv: string[], name: string): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
-    if (a === name && i + 1 < argv.length) out.push(argv[i + 1]!);
-    else if (a.startsWith(`${name}=`)) out.push(a.slice(name.length + 1));
-  }
-  return out.flatMap((v) => v.split(",")).map((v) => v.trim()).filter(Boolean);
-}
-
+// Normalise the raw --target values (repeatable + comma-separated) into known
+// AgentTargets, collecting any unknown names as errors.
 function parseTargets(raw: string[]): { targets: AgentTarget[]; errors: string[] } {
   const targets: AgentTarget[] = [];
   const errors: string[] = [];
-  for (const r of raw) {
+  const flat = raw
+    .flatMap((v) => String(v).split(","))
+    .map((v) => v.trim())
+    .filter(Boolean);
+  for (const r of flat) {
     const norm = r.toLowerCase();
     if ((ALL_TARGETS as string[]).includes(norm)) {
       const t = norm as AgentTarget;
@@ -88,64 +94,109 @@ function parseTargets(raw: string[]): { targets: AgentTarget[]; errors: string[]
   return { targets, errors };
 }
 
-function parseArgs(argv: string[]): Args {
-  const has = (n: string) => argv.includes(n);
-  const { targets, errors } = parseTargets(getOptAll(argv, "--target"));
-  return {
-    yes: has("--yes") || has("-y"),
-    // --ci is an alias for non-interactive defaults.
-    noInteractive: has("--no-interactive") || has("--ci"),
-    skipCli: has("--skip-cli"),
-    skipAgents: has("--skip-agents"),
-    skipLogin: has("--skip-login"),
-    allAgents: has("--all-agents"),
-    targets,
-    json: has("--json"),
-    agent: has("--agent"),
-    // Flags take precedence, then env (so install one-liners can pass either).
-    apiKey: getOpt(argv, "--api-key") ?? process.env.CHIFU_API_KEY,
-    apiUrl: getOpt(argv, "--api-url") ?? process.env.CHIFU_API_URL,
-    webUrl: getOpt(argv, "--web-url") ?? process.env.CHIFU_WEB_URL,
-    help: has("--help") || has("-h"),
-    version: has("--version") || has("-v"),
-    errors,
-  };
+// Build the yargs parser. We keep the help/version output ourselves only for the
+// styled banner inside the help epilogue; yargs handles flag parsing + --help.
+function buildParser(argv: string[]) {
+  return yargs(argv)
+    .scriptName("chifu-wizard")
+    .usage(
+      `${chalk.bold("chifu-wizard")} — set up chifu for your AI coding agent\n\n` +
+        "Usage:\n" +
+        "  npx @marshell/chifu-wizard [options]\n" +
+        "  bunx @marshell/chifu-wizard [options]\n\n" +
+        "What it does:\n" +
+        "  1. installs the chifu CLI (if missing)\n" +
+        "  2. installs the chifu skill into your detected agents\n" +
+        "     (Claude Code, Cursor, Windsurf, Codex, OpenCode, Gemini CLI, Cline)\n" +
+        "  3. signs you in through your browser (a pairing code) — optional",
+    )
+    .option("yes", {
+      alias: "y",
+      type: "boolean",
+      default: false,
+      describe: "Non-interactive: do steps 1-2, skip the browser sign-in",
+    })
+    .option("ci", {
+      type: "boolean",
+      default: false,
+      describe: "Same as --yes (non-interactive)",
+    })
+    .option("json", {
+      type: "boolean",
+      default: false,
+      describe: "Print a machine-readable JSON result and nothing else",
+    })
+    .option("agent", {
+      type: "boolean",
+      default: false,
+      describe: "Print an onboarding prompt for an external coding agent and exit",
+    })
+    .option("target", {
+      type: "string",
+      array: true,
+      describe: `Only install into these agents (repeatable / comma-sep): ${ALL_TARGETS.join(", ")}`,
+    })
+    .option("all-agents", {
+      type: "boolean",
+      default: false,
+      describe: "Install into every detected agent (default behavior)",
+    })
+    .option("skip-cli", {
+      type: "boolean",
+      default: false,
+      describe: "Don't install the chifu CLI",
+    })
+    .option("skip-agents", {
+      type: "boolean",
+      default: false,
+      describe: "Don't touch any agent config",
+    })
+    .option("skip-login", {
+      type: "boolean",
+      default: false,
+      describe: "Don't sign in (chifu still works anonymously)",
+    })
+    .option("api-key", {
+      type: "string",
+      describe: "Sign in with this key instead of the browser (env: CHIFU_API_KEY)",
+    })
+    .option("api-url", {
+      type: "string",
+      describe: `Backend origin (env: CHIFU_API_URL, default ${DEFAULT_API_URL})`,
+    })
+    .option("web-url", {
+      type: "string",
+      describe: `Dashboard origin for sign-in (env: CHIFU_WEB_URL, default ${DEFAULT_WEB_URL})`,
+    })
+    .help("help")
+    .alias("help", "h")
+    .version("version", "Show the version", VERSION)
+    .alias("version", "v")
+    .strict()
+    .wrap(Math.min(100, process.stdout.columns || 100));
 }
 
-const HELP = `${c.bold("chifu-wizard")} ${VERSION} — set up chifu for your AI coding agent
-
-${c.bold("Usage:")}
-  bunx @marshell/chifu-wizard [options]
-  npx @marshell/chifu-wizard [options]
-
-${c.bold("What it does:")}
-  1. installs the chifu CLI (if missing)
-  2. installs the chifu skill into your detected agents
-     (Claude Code, Cursor, Windsurf, Codex, OpenCode, Gemini CLI, Cline)
-  3. signs you in through your browser (a 6-character code) — optional
-
-${c.bold("Options:")}
-  -y, --yes            Non-interactive: do steps 1-2, skip the browser sign-in
-      --ci             Same as --yes
-      --json           Print a machine-readable JSON result of what was installed
-      --agent          Print an onboarding prompt for an external coding agent and
-                       exit (no side effects; the agent sets chifu up itself)
-      --target <name>  Only install into these agents (repeatable / comma-sep).
-                       Names: ${ALL_TARGETS.join(", ")}
-      --skip-cli       Don't install the chifu CLI
-      --skip-agents    Don't touch any agent config
-      --skip-login     Don't sign in (chifu still works anonymously)
-      --api-key <key>  Sign in with this key instead of the browser. Reads CHIFU_API_KEY
-      --api-url <url>  Backend origin. Reads CHIFU_API_URL  (default ${DEFAULT_API_URL})
-      --web-url <url>  Dashboard origin for sign-in. Reads CHIFU_WEB_URL  (default ${DEFAULT_WEB_URL})
-  -h, --help           Show this help
-  -v, --version        Show the version
-`;
-
-function printBanner(): void {
-  log.plain();
-  log.plain(c.cyan(c.bold("  chifu wizard")));
-  log.plain(c.dim("  make your AI coding agent dependency-security aware"));
+function parseArgs(argv: string[]): Args {
+  const parsed = buildParser(argv).parseSync();
+  const rawTargets = (parsed.target as string[] | undefined) ?? [];
+  const { targets, errors } = parseTargets(rawTargets);
+  return {
+    yes: Boolean(parsed.yes),
+    // --ci is an alias for non-interactive defaults.
+    noInteractive: Boolean(parsed.ci),
+    skipCli: Boolean(parsed["skip-cli"]),
+    skipAgents: Boolean(parsed["skip-agents"]),
+    skipLogin: Boolean(parsed["skip-login"]),
+    allAgents: Boolean(parsed["all-agents"]),
+    targets,
+    json: Boolean(parsed.json),
+    agent: Boolean(parsed.agent),
+    // Flags take precedence, then env (so install one-liners can pass either).
+    apiKey: (parsed["api-key"] as string | undefined) ?? process.env.CHIFU_API_KEY,
+    apiUrl: (parsed["api-url"] as string | undefined) ?? process.env.CHIFU_API_URL,
+    webUrl: (parsed["web-url"] as string | undefined) ?? process.env.CHIFU_WEB_URL,
+    errors,
+  };
 }
 
 // Shape returned to the caller and serialized for --json.
@@ -159,8 +210,6 @@ interface RunResult {
 }
 
 function printSummary(result: RunResult): void {
-  log.step("Done");
-
   if (!result.cli.present) {
     log.warn("chifu CLI isn't on PATH — your agent will fall back to `bunx @marshell/chifu`");
   }
@@ -173,50 +222,46 @@ function printSummary(result: RunResult): void {
     log.info("No supported agent detected — install one and re-run the wizard.");
   }
 
-  log.plain();
-  log.plain(
-    `  ${c.bold("Try it:")} in your agent, ask ${c.cyan('"check my dependencies for vulnerabilities and fix them"')}`,
+  note(
+    `Ask your coding agent ${c.cyan('"check my dependencies for vulnerabilities and fix them"')}\n` +
+      `Or run ${c.cyan("chifu check")} yourself.\n` +
+      `Docs: ${c.cyan("https://marshell.dev")}`,
+    "Try it",
   );
-  log.plain(
-    `  Or run ${c.cyan("chifu check")} yourself.  Docs: ${c.cyan("https://marshell.dev")}`,
-  );
-  log.plain();
+  outro(c.green("chifu is ready"));
 }
 
 async function main(): Promise<number> {
-  const argv = process.argv.slice(2);
+  const argv = hideBin(process.argv);
   const args = parseArgs(argv);
 
-  if (args.help) {
-    process.stdout.write(HELP);
-    return 0;
-  }
-  if (args.version) {
-    process.stdout.write(`${VERSION}\n`);
-    return 0;
-  }
   // --agent emits a prompt and exits with zero side effects. Honored before any
-  // other work so it's always safe to pipe.
+  // other work (and before the clack UI starts) so it's always safe to pipe.
   if (args.agent) {
     printAgentPrompt();
     return 0;
   }
 
   if (args.errors.length > 0) {
-    for (const e of args.errors) log.fail(e);
+    for (const e of args.errors) process.stderr.write(`error: ${e}\n`);
     return 2;
   }
 
-  // Only the sign-in step is interactive; --yes/--ci make the whole run silent.
-  const nonInteractive = args.yes || args.noInteractive;
+  // --json: suppress the entire interactive clack UI; only the final JSON object
+  // is written to stdout.
+  const jsonMode = args.json;
+  setQuiet(jsonMode);
+
+  // Only the sign-in step is interactive; --yes/--ci/--json make the run silent.
+  const nonInteractive = args.yes || args.noInteractive || jsonMode;
   const prompt: Prompter = makePrompter(!nonInteractive);
   const apiUrl = (args.apiUrl?.trim() || DEFAULT_API_URL).replace(/\/+$/, "");
   const webUrl = (args.webUrl?.trim() || DEFAULT_WEB_URL).replace(/\/+$/, "");
 
-  // In --json mode we suppress the narrative banner so stdout stays parseable;
-  // step logging still goes to stdout but the final line is the JSON object.
-  const jsonMode = args.json;
-  if (!jsonMode) printBanner();
+  if (!jsonMode) {
+    intro(`${chalk.bgCyan.black.bold(" chifu wizard ")} ${chalk.dim("v" + VERSION)}`);
+    log.message(c.dim("make your AI coding agent dependency-security aware"));
+  }
 
   try {
     // 1. CLI — install automatically, no prompt.
@@ -247,8 +292,8 @@ async function main(): Promise<number> {
       agentsConfigured = r.any;
     }
 
-    // 3. Sign in via the browser (6-char pairing code). Interactive unless
-    // --yes/--ci/--skip-login, or --api-key was supplied.
+    // 3. Sign in via the browser pairing code. Interactive unless
+    // --yes/--ci/--json/--skip-login, or --api-key was supplied.
     const signedIn = await signIn(prompt, {
       apiUrl,
       webUrl,
@@ -279,7 +324,6 @@ async function main(): Promise<number> {
           "\n",
       );
     } else {
-      log.plain();
       log.fail(`Wizard failed: ${(err as Error).message}`);
     }
     return 1;
