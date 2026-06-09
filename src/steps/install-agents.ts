@@ -110,7 +110,7 @@ function rulePreamble(): string {
   return `Apply this whenever you add, install, upgrade, pin, or change a dependency
 (editing package.json, running npm/bun/yarn install), and before finishing a
 task that touched dependencies. Run \`chifu check --json\` (or
-\`bunx @marshell/chifu check --json\` if the CLI isn't installed) and fix what it
+\`bunx @marshell/chifu@latest check --json\` if the CLI isn't installed) and fix what it
 reports.`;
 }
 

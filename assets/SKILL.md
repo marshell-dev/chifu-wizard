@@ -29,7 +29,7 @@ packages, fix them first (or tell the user why you can't) and only then commit.
    ```
 
    This works without any account or API key — no login step needed. If the
-   command isn't found, fall back to `bunx @marshell/chifu check --json`. If it still
+   command isn't found, fall back to `bunx @marshell/chifu@latest check --json`. If it still
    fails (e.g. no network, or no `package.json`/lockfile in the path), report
    the exact error to the user and stop — do not guess vulnerabilities yourself.
 
