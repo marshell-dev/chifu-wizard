@@ -103,7 +103,10 @@ function buildParser(argv: string[]) {
       `${chalk.bold("chifu-wizard")} — set up chifu for your AI coding agent\n\n` +
         "Usage:\n" +
         "  npx @marshell/chifu-wizard [options]\n" +
-        "  bunx @marshell/chifu-wizard [options]\n\n" +
+        "  npx @marshell/chifu-wizard update [options]\n\n" +
+        "Commands:\n" +
+        "  (default)  install the CLI + skill, then sign in\n" +
+        "  update     update the CLI + skill to the latest (no sign-in)\n\n" +
         "What it does:\n" +
         "  1. installs the chifu CLI (if missing)\n" +
         "  2. lets you pick which detected agents get the chifu skill\n" +
@@ -220,9 +223,88 @@ function printSummary(result: RunResult): void {
   );
 }
 
+// `chifu-wizard update` — force the CLI to @latest and re-render the dep-guard
+// skill into every detected agent. No sign-in; non-interactive. Run it via
+// `npx @marshell/chifu-wizard@latest update` to pull both to the newest.
+async function runUpdate(args: Args): Promise<number> {
+  const jsonMode = args.json;
+  setQuiet(jsonMode);
+  const prompt: Prompter = makePrompter(false);
+
+  if (!jsonMode) {
+    intro(`${chalk.bgCyan.black.bold(" chifu wizard ")} ${chalk.dim("v" + VERSION)}`);
+    note("Updating the chifu CLI and the dep-guard skill to the latest.");
+  }
+
+  try {
+    let cliPresent = false;
+    let installedVia: "npm" | "bun" | null = null;
+    if (args.skipCli) {
+      log.step("chifu CLI");
+      log.skip("Skipped (--skip-cli)");
+    } else {
+      const r = await installCli(prompt, true, true); // update = force @latest
+      cliPresent = r.present;
+      installedVia = r.installedVia;
+    }
+
+    let agents: AgentInstall[] = [];
+    if (args.skipAgents) {
+      log.step("AI coding agents");
+      log.skip("Skipped (--skip-agents)");
+    } else {
+      // Re-render the bundled (latest) skill into every detected agent.
+      const r = await installAgents(prompt, { assumeYes: true, only: args.targets, all: true });
+      agents = r.installs;
+    }
+
+    const result: RunResult = {
+      ok: true,
+      version: VERSION,
+      cli: { present: cliPresent, installedVia },
+      agents,
+      agentsConfigured: agents.some((a) => a.installed),
+      apiKeyConfigured: hasConfiguredKey(),
+    };
+
+    if (jsonMode) {
+      process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+    } else {
+      const names = agents.filter((a) => a.installed).map((a) => a.label);
+      note(
+        (cliPresent
+          ? "chifu CLI updated to the latest."
+          : "chifu CLI isn't installed — run the wizard to set it up.") +
+          "\n" +
+          (names.length
+            ? `dep-guard skill refreshed in: ${names.join(", ")}`
+            : "No agents detected to refresh."),
+        "Updated",
+      );
+      outro(chalk.green("chifu is up to date"));
+    }
+    return 0;
+  } catch (err) {
+    if (jsonMode) {
+      process.stdout.write(
+        JSON.stringify({ ok: false, version: VERSION, error: (err as Error).message }, null, 2) +
+          "\n",
+      );
+    } else {
+      log.fail(`Update failed: ${(err as Error).message}`);
+    }
+    return 1;
+  } finally {
+    prompt.close();
+  }
+}
+
 async function main(): Promise<number> {
-  const argv = hideBin(process.argv);
-  const args = parseArgs(argv);
+  const rawArgv = hideBin(process.argv);
+  // A leading positional is a subcommand (e.g. `update`); strip it before yargs
+  // flag parsing so --strict doesn't reject it.
+  const command = rawArgv[0] && !rawArgv[0].startsWith("-") ? rawArgv[0] : undefined;
+  const args = parseArgs(command ? rawArgv.slice(1) : rawArgv);
 
   // --agent emits a prompt and exits with zero side effects. Honored before any
   // other work (and before the clack UI starts) so it's always safe to pipe.
@@ -233,6 +315,12 @@ async function main(): Promise<number> {
 
   if (args.errors.length > 0) {
     for (const e of args.errors) process.stderr.write(`error: ${e}\n`);
+    return 2;
+  }
+
+  if (command === "update") return runUpdate(args);
+  if (command) {
+    process.stderr.write(`error: unknown command "${command}" — did you mean "update"?\n`);
     return 2;
   }
 
