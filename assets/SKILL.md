@@ -39,6 +39,38 @@ npm install --package-lock-only --ignore-scripts
 It rewrites `package-lock.json` to reflect your edits **without downloading,
 building, or executing any package**. Nothing else.
 
+## Finish the job — the manifest is yours to change
+
+Not being allowed to install is **not** a reason to leave a vulnerability
+unfixed, and it is **never** an excuse to stop early or hand the task back
+half-done. You have full authority and capability to do the fix: editing
+`package.json` (and `overrides` / `resolutions`) is a plain text edit, always
+available to you, requiring nobody's permission. Use it decisively.
+
+When `chifu check` reports vulnerable packages, your task is **not done** until
+one of these is true:
+
+- `chifu check` reports `vulnerablePackages: 0`, **or**
+- the only packages left have `recommendedVersion: null` (no fix exists yet) —
+  and you've told the user which ones and why.
+
+Drive the loop yourself until then:
+
+> edit `package.json` (versions + `overrides`) → `npm install --package-lock-only
+> --ignore-scripts` → `chifu check --json` → repeat.
+
+Never:
+
+- skip a fixable package because "the user needs to run install" — **you** edit
+  the version, that edit *is* the fix;
+- stop after a single pass — one bump can surface a new transitive vuln, so loop
+  until the check comes back clean;
+- treat the install ban as a blocker — it only forbids *executing* packages, not
+  changing their declared versions, which you do freely.
+
+The final, clean `chifu check` is mandatory: ending the turn without it means you
+don't actually know the task is done.
+
 ## Run before every commit
 
 **Run `chifu check` before every `git commit`.** A vulnerable dependency that
@@ -110,3 +142,6 @@ gets committed reaches production — catch and fix it before the commit, not af
 - Don't blindly bump majors; read the advisory and fix the usage statically.
 - Keep changes scoped to what's vulnerable plus the minimum to stay consistent —
   don't opportunistically upgrade unrelated packages.
+- Never end the turn with a fixable vulnerability outstanding. The manifest edit
+  is always within your power — keep looping until the check is clean (or only
+  `recommendedVersion: null` packages remain).
