@@ -2,10 +2,11 @@
 name: chifu-dep-guard
 description: >-
   Check the project's dependencies for known security vulnerabilities (CVEs) and
-  report them to the user — NEVER edit dependency versions, lockfiles, or
-  overrides yourself. Use this whenever you add, upgrade, pin, or change a
-  dependency (editing package.json, etc.), ALWAYS right before you run `git
-  commit`, before opening a pull request, and before finishing a task that
+  report them to the user. NEVER run an install (npm/yarn/pnpm/bun) and NEVER
+  edit dependency versions, lockfiles, or overrides yourself — chifu reads from
+  disk and needs nothing installed. Use this whenever you add, upgrade, pin, or
+  change a dependency (editing package.json, etc.), ALWAYS right before you run
+  `git commit`, before opening a pull request, and before finishing a task that
   touched dependencies. Also use when the user asks to audit, check, or secure
   dependencies.
 ---
@@ -15,32 +16,53 @@ description: >-
 You changed dependencies. Before the work is done, check whether any have known
 vulnerabilities and **report what you find to the user**. `chifu` does the
 detection; you surface the results and the recommended upgrades. You do **not**
-change dependency versions yourself — that decision, and applying it, belongs to
-the user.
+install anything and you do **not** change versions — applying a fix belongs to
+the user, in their own environment.
 
-## ⛔ Detect and report — never edit versions, never install
+## ⛔ Rule 0 — NEVER run an install, and never before `chifu check`
 
-Two hard rules, no exceptions:
+`chifu check` reads `package.json` and the lockfile **straight from disk**. It
+needs **nothing installed** to run. So:
 
-1. **Never edit a dependency version.** Do NOT touch `package.json`,
-   `package-lock.json`, `bun.lock`, `yarn.lock`, or `pnpm-lock.yaml`, and do NOT
-   add or change an `overrides` / `resolutions` entry to bump, pin, or swap a
-   package. Even when chifu reports a clean one-line fix, you **describe** it —
-   you do not apply it. Changing versions (especially transitive pins and
-   overrides) can silently break the build or the dependency tree, and the
-   change must be made and validated in the user's own environment, not
-   blind-edited here.
+> **Do NOT run `npm install` / `npm ci` / `npm audit` / `npm audit fix` /
+> `yarn` / `pnpm install` / `bun install` / `bun update` — or anything that
+> writes `node_modules` or generates a lockfile — at any point in this task.**
 
-2. **Never run a package-manager install / add / upgrade / audit-fix.** Not
-   `npm install`, `npm ci`, `npm audit fix`, `yarn`, `pnpm install`,
-   `bun install`, `bun update`, or any equivalent. Installing executes the
-   `preinstall`/`postinstall` lifecycle scripts of the very packages you are
-   vetting — arbitrary, untrusted code on this machine. That is exactly the
-   supply-chain attack chifu exists to stop.
+Most important: never run one **before** `chifu check`. An install executes the
+`preinstall`/`postinstall` lifecycle scripts of the very dependencies you are
+vetting — arbitrary, untrusted code — *before chifu ever inspects them*. That is
+the exact supply-chain attack chifu exists to catch. Running it yourself, even
+"just to check", defeats the entire tool.
 
-chifu reads `package.json` and the lockfile straight from disk — **nothing needs
-to be installed for it to work.** The only command you run is the read-only
-`chifu check`. Everything after that is a report, not an edit.
+None of these are exceptions — each one **is** the mistake:
+
+- ❌ "I'll install to generate a `package-lock.json` so the scan covers the full
+  tree." No. A missing lockfile means you **report reduced coverage**; you never
+  create one by installing. The user generates it later, in their environment.
+- ❌ "I'll install to test that the fix works." No. You are not applying fixes
+  (Rule 1), so there is nothing to test — and "testing" runs the package.
+- ❌ "`npm audit` only reads, it's fine." No. It is not chifu and it needs the
+  installed/locked tree. Use `chifu check`, nothing else.
+
+If you are about to type an install command, **STOP** — that is precisely the
+failure this skill prevents. The only command you run is the read-only
+`chifu check`.
+
+## ⛔ Rule 1 — report only; never edit versions
+
+Do NOT touch `package.json`, `package-lock.json`, `bun.lock`, `yarn.lock`, or
+`pnpm-lock.yaml`, and do NOT add or change an `overrides` / `resolutions` entry
+to bump, pin, or swap a package. Even when chifu reports a clean one-line fix,
+you **describe** it — you do not apply it. Changing versions (especially
+transitive pins and overrides) can silently break the build or the dependency
+tree, and the change must be made and validated in the user's own environment.
+
+A specific trap: **never invent, round, or "upgrade to latest" a version from
+memory.** Report `recommendedVersion` **exactly** as chifu returns it, verbatim.
+A made-up version — e.g. a `lodash@4.18.0` that doesn't exist (the real line ends
+at `4.17.21`) — can resolve to a malicious or typosquatted package, and you must
+never be the one who installs it anyway. If chifu gives no `recommendedVersion`,
+say there's no fix yet; do not guess one.
 
 ## Your job ends at the report
 
@@ -51,34 +73,27 @@ the recommended fix for each. It is **not** to apply that fix.
 For every vulnerable package, surface:
 
 - the package name and the **installed version**,
-- the **recommended version** that clears its CVEs (or note that no fix exists
-  yet when `recommendedVersion` is null),
+- the **recommended version** that clears its CVEs (verbatim from chifu, or note
+  that no fix exists yet when `recommendedVersion` is null),
 - the worst severity and how many CVEs it carries,
 - the CVE ids and advisory link(s) so the user can read the detail.
 
-Then state the exact change they could make (e.g. "bump `lodash` to `4.17.21`",
-or "add an `overrides` entry pinning the transitive `foo` to `1.2.3`") as a
+Then state the change they could make (e.g. "bump `lodash` to `4.17.21`") as a
 **recommendation the user applies themselves** — in their controlled
 environment, with their own install + build + tests.
 
-Never:
-
-- edit a manifest, lockfile, or `overrides` / `resolutions` to change a version;
-- run an install / add / upgrade to apply or "test" a fix;
-- claim a dependency is safe without having run `chifu check` — you cannot know
-  the current CVE state from training data;
-- guess vulnerabilities yourself — only report what chifu returns.
-
 ## Run before every commit
 
-**Run `chifu check` before every `git commit` that touched dependencies.** A
-vulnerable dependency that gets committed reaches production — so surface it to
-the user *before* the commit. You still don't edit versions: you report the
-findings and let the user decide whether to proceed, hold, or upgrade first.
+**Run `chifu check` before every `git commit` that touched dependencies** — and
+again, *without* installing first. A vulnerable dependency that gets committed
+reaches production, so surface it to the user before the commit. You still don't
+install and don't edit versions: you report, and the user decides whether to
+proceed, hold, or upgrade.
 
 ## Steps
 
-1. **Check.** In the project root:
+1. **Check — do not install first.** In the project root, against whatever is
+   already on disk (do **not** run `npm install` to "prepare" anything):
 
    ```bash
    chifu check --json
@@ -87,8 +102,9 @@ findings and let the user decide whether to proceed, hold, or upgrade first.
    You must be signed in — chifu needs an account. If it reports you're not
    authenticated, run `chifu login` first (or set `CHIFU_API_KEY`). If `chifu`
    isn't found, fall back to `bunx @marshell/chifu@latest check --json`. If it
-   errors (no network, no `package.json`/lockfile, or not signed in), report the
-   exact error and stop — never guess vulnerabilities yourself.
+   errors (no network, no `package.json`, or not signed in), report the exact
+   error and stop — never guess vulnerabilities yourself, and never `npm install`
+   to "fix" a missing-lockfile message.
 
 2. **Read the output.** `packages` is the actionable list (one entry per
    vulnerable package, collapsed to the single upgrade that clears its CVEs);
@@ -111,22 +127,24 @@ findings and let the user decide whether to proceed, hold, or upgrade first.
 
    If `vulnerablePackages` is 0, say so briefly and stop.
 
-3. **Report — do not edit, do not install.** Most severe first (`worstSeverity`:
-   critical → high → medium → low), list each vulnerable package with its
-   installed version, `recommendedVersion`, CVE count + ids, and `advisoryUrl`,
-   plus the exact upgrade you'd recommend. Make clear it is the user's to apply.
-   When `recommendedVersion` is null there's no fix yet — say so and suggest
-   mitigations (pin away from the vulnerable range, drop the dependency, etc.),
-   but never edit or remove a dependency yourself. The user then applies any
-   change in their own environment and can re-run this skill to confirm it's
-   clean.
+3. **Report — do not edit, do not install.** Most severe first, list each
+   vulnerable package with its installed version, `recommendedVersion` (verbatim),
+   CVE count + ids, and `advisoryUrl`, plus the exact upgrade you'd recommend.
+   Make clear it is the user's to apply. When `recommendedVersion` is null there's
+   no fix yet — say so and suggest mitigations (drop the dependency, pin away from
+   the vulnerable range), but never edit, install, or remove anything yourself.
+   The user applies the change in their own environment and can re-run this skill
+   to confirm it's clean.
 
 ## Rules
 
+- **Never run an install / add / upgrade / audit / audit-fix — ever, and never
+  before `chifu check`.** `chifu check` is the only command this skill runs.
 - **Never edit dependency versions, lockfiles, or `overrides` / `resolutions`.**
   Report the recommended change; the user applies it.
-- **Never run a package-manager install / add / upgrade / audit-fix command.**
-  The only command this skill runs is the read-only `chifu check`.
-- Never claim a dependency is safe without running `chifu check`.
-- Present `recommendedVersion` as a recommendation, never as an action you take.
-- Don't guess vulnerabilities from training data — only report what chifu finds.
+- **Never generate a lockfile or `node_modules` by installing** — a missing
+  lockfile is reduced coverage you report, not something you fix.
+- Report `recommendedVersion` verbatim; never invent or "upgrade to latest" a
+  version from memory.
+- Never claim a dependency is safe without running `chifu check`; only report
+  what chifu returns.
