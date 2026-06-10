@@ -194,7 +194,7 @@ const adapters: Adapter[] = [
     resolvePath: () => cursorRuleFile,
     apply: () => {
       const content = `---
-description: chifu dep-guard — check changed dependencies for known CVEs and fix them.
+description: chifu dep-guard — check changed dependencies for known CVEs and report them.
 alwaysApply: false
 ---
 

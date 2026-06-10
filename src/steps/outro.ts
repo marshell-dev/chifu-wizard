@@ -44,7 +44,7 @@ export function buildSuccessOutro(o: SuccessOutroOptions): string {
       : []),
     "",
     chalk.cyan.bold("Ask your coding agent"),
-    `${pad}${chalk.yellow('"check my dependencies for vulnerabilities and fix them"')}`,
+    `${pad}${chalk.yellow('"check my dependencies for known vulnerabilities"')}`,
     `${pad}${chalk.yellow('"is anything in my package.json vulnerable?"')}`,
     "",
     chalk.cyan.bold("Or run it yourself"),
