@@ -338,10 +338,11 @@ export async function installAgents(
     return buildResult(installs);
   }
 
-  // 1b. PRIMARY path — skills.sh installs/updates the skill into every detected
-  //     agent in one command. Used for the default "all agents" case; an explicit
-  //     --target (onlySet) or CHIFU_NO_SKILLS_SH=1 falls through to the precise
-  //     adapters below, and any skills.sh failure degrades to them gracefully.
+  // 1b. skills.sh — runs in addition to (not instead of) the per-agent adapters
+  //     below. skills.sh covers ~15+ agents the wizard doesn't model; the
+  //     per-agent adapters below handle Cursor (.mdc), Codex/OpenCode/Gemini/Cline
+  //     (AGENTS.md blocks) with wizard-specific formatting that skills.sh doesn't
+  //     touch. Running both ensures every agent is always up to date.
   //     Update path uses `skills update` (force-refreshes existing installs);
   //     install path uses `skills add` (writes to agents that don't have it yet).
   if (!onlySet && !skillsShDisabled()) {
@@ -354,26 +355,20 @@ export async function installAgents(
     );
     const res = isUpdate ? updateViaSkillsSh() : installViaSkillsSh();
     if (res.ok) {
-      s.stop("Installed the chifu skill via skills.sh");
-      // skills.sh wrote the files (and may cover agents we don't model); we
-      // report the ones we detected as installed. Path is left null — the skills
-      // CLI owns the on-disk location, so we don't assert one we didn't write.
-      for (const { adapter } of detected) {
-        installs.push({
-          target: adapter.target,
-          label: adapter.label,
-          detected: true,
-          installed: true,
-          path: null,
-          note: "via skills.sh",
-        });
-      }
-      log.ok(
-        `chifu skill installed across your coding agents ${c.dim("(skills.sh)")}`,
+      s.stop(
+        isUpdate
+          ? "Updated the chifu skill via skills.sh"
+          : "Installed the chifu skill via skills.sh",
       );
-      return buildResult(installs);
+      log.ok(
+        `chifu skill ${isUpdate ? "updated" : "installed"} across your coding agents ${c.dim("(skills.sh)")}`,
+      );
+      // Fall through to the per-agent adapters so Cursor / Codex / Cline /
+      // AGENTS.md targets also get the latest text — skills.sh doesn't manage
+      // those wizard-specific file formats.
+    } else {
+      s.stop(`skills.sh unavailable — using built-in installers ${c.dim(`(${res.detail ?? "unknown"})`)}`, 1);
     }
-    s.stop(`skills.sh unavailable — using built-in installers ${c.dim(`(${res.detail ?? "unknown"})`)}`, 1);
   }
 
   // 2. Choose which detected agents get the skill. Interactive runs show a
