@@ -1,12 +1,19 @@
 // Step 2 — detect installed AI coding agents and teach each one about chifu.
 //
+// PRIMARY path: skills.sh (see ./skills-sh.ts). One `npx skills add` call fans
+// the chifu skill out to every agent skills.sh detects, so for the default
+// "install everywhere" case we let it do the work and skip the per-agent
+// adapters below. The adapters remain the FALLBACK — used when skills.sh can't
+// run, when it's disabled (CHIFU_NO_SKILLS_SH=1), or when the user scopes the
+// install to specific agents with --target.
+//
 // Each supported agent is modeled as a small, independent *adapter*: it knows
 // how to detect itself (by config directory or binary on PATH), where its
 // instruction file lives, and how to render the bundled skill (assets/SKILL.md)
 // into that agent's native format. Every adapter is best-effort — a failure for
 // one agent never aborts the others or the wizard.
 //
-// Supported targets:
+// Supported targets (fallback adapters):
 //   claude    Claude Code → ~/.claude/skills/chifu-dep-guard/SKILL.md (skill)
 //   cursor    Cursor      → ~/.cursor/rules/chifu-dep-guard.mdc (.mdc rule)
 //   windsurf  Windsurf    → ~/.codeium/windsurf/memories/… (markdown rule)
@@ -19,7 +26,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { onPath } from "../exec.ts";
-import { log, c, type Prompter } from "../ui.ts";
+import { log, c, spinner, type Prompter } from "../ui.ts";
+import { installViaSkillsSh, skillsShDisabled, SKILLS_SH_REPO } from "./skills-sh.ts";
 import {
   claudeDir,
   claudeSkillDir,
@@ -107,11 +115,12 @@ function skillBody(): string {
 // A short, agent-agnostic preamble prepended to rule/instruction formats so the
 // agent knows when and how to reach for chifu even without skill auto-loading.
 function rulePreamble(): string {
-  return `Apply this whenever you add, install, upgrade, pin, or change a dependency
-(editing package.json, running npm/bun/yarn install), and before finishing a
-task that touched dependencies. Run \`chifu check --json\` (or
-\`bunx @marshell/chifu@latest check --json\` if the CLI isn't installed) and fix what it
-reports.`;
+  return `Run \`chifu check --json\` (or \`bunx @marshell/chifu@latest check --json\` if the CLI
+isn't installed) before EVERY \`git commit\`, \`git push\`, or pull-request open —
+regardless of whether package.json changed. Also run whenever you add, upgrade,
+pin, or remove a dependency. Run from the directory that contains package.json
+(not necessarily the git root). NEVER run npm/bun/yarn install as part of this
+check. Report findings; do not edit versions or lockfiles.`;
 }
 
 // Render a self-delimited "## chifu" block for AGENTS.md / GEMINI.md targets.
@@ -194,7 +203,13 @@ const adapters: Adapter[] = [
     resolvePath: () => cursorRuleFile,
     apply: () => {
       const content = `---
-description: chifu dep-guard — check changed dependencies for known CVEs and report them.
+description: >-
+  Run chifu check --json before EVERY git commit, git push, or pull-request
+  open — regardless of whether package.json changed. Also run whenever a
+  dependency is added, upgraded, pinned, or removed. Run from the directory
+  that contains package.json (not necessarily the git root). NEVER run
+  npm/bun/yarn install as part of this check. Report findings; do not edit
+  versions or lockfiles.
 alwaysApply: false
 ---
 
@@ -318,6 +333,37 @@ export async function installAgents(
         "own — install an agent (Claude Code, Cursor, Codex, …) and re-run this wizard.",
     );
     return buildResult(installs);
+  }
+
+  // 1b. PRIMARY path — skills.sh installs the skill into every detected agent in
+  //     one command. Used for the default "all agents" case; an explicit
+  //     --target (onlySet) or CHIFU_NO_SKILLS_SH=1 falls through to the precise
+  //     adapters below, and any skills.sh failure degrades to them gracefully.
+  if (!onlySet && !skillsShDisabled()) {
+    const s = spinner();
+    s.start(`Installing the chifu skill into your agents via skills.sh (${SKILLS_SH_REPO})`);
+    const res = installViaSkillsSh();
+    if (res.ok) {
+      s.stop("Installed the chifu skill via skills.sh");
+      // skills.sh wrote the files (and may cover agents we don't model); we
+      // report the ones we detected as installed. Path is left null — the skills
+      // CLI owns the on-disk location, so we don't assert one we didn't write.
+      for (const { adapter } of detected) {
+        installs.push({
+          target: adapter.target,
+          label: adapter.label,
+          detected: true,
+          installed: true,
+          path: null,
+          note: "via skills.sh",
+        });
+      }
+      log.ok(
+        `chifu skill installed across your coding agents ${c.dim("(skills.sh)")}`,
+      );
+      return buildResult(installs);
+    }
+    s.stop(`skills.sh unavailable — using built-in installers ${c.dim(`(${res.detail ?? "unknown"})`)}`, 1);
   }
 
   // 2. Choose which detected agents get the skill. Interactive runs show a
