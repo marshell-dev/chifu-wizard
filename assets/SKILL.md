@@ -1,14 +1,12 @@
 ---
 name: chifu-dep-guard
 description: >-
-  Check the project's dependencies for known security vulnerabilities (CVEs) and
-  report them to the user. NEVER run an install (npm/yarn/pnpm/bun) and NEVER
-  edit dependency versions, lockfiles, or overrides yourself — chifu reads from
-  disk and needs nothing installed. Use this whenever you add, upgrade, pin, or
-  change a dependency (editing package.json, etc.), ALWAYS right before you run
-  `git commit`, before opening a pull request, and before finishing a task that
-  touched dependencies. Also use when the user asks to audit, check, or secure
-  dependencies.
+  Run chifu check --json before EVERY git commit, git push, or pull-request
+  open — regardless of whether package.json changed. Also run whenever a
+  dependency is added, upgraded, pinned, or removed, and whenever the user asks
+  to audit or secure dependencies. Run from the directory that contains
+  package.json (not necessarily the git root). NEVER run npm/bun/yarn install
+  as part of this check. Report findings; do not edit versions or lockfiles.
 ---
 
 # chifu dep-guard
@@ -92,8 +90,9 @@ proceed, hold, or upgrade.
 
 ## Steps
 
-1. **Check — do not install first.** In the project root, against whatever is
-   already on disk (do **not** run `npm install` to "prepare" anything):
+1. **Check — do not install first.** Run from the directory that contains
+   `package.json` (e.g. `frontend/`, not the git root if they differ), against
+   whatever is already on disk (do **not** run `npm install` to "prepare"):
 
    ```bash
    chifu check --json
@@ -112,6 +111,7 @@ proceed, hold, or upgrade.
 
    ```json
    {
+     "update": null,
      "vulnerablePackages": 1,
      "packages": [
        { "name": "lodash", "version": "4.17.4", "recommendedVersion": "4.17.21",
@@ -124,6 +124,14 @@ proceed, hold, or upgrade.
      ]
    }
    ```
+
+   The output may also carry an `update` object — when present, chifu upgraded
+   itself in the background before this check (e.g.
+   `{ "status": "updated", "from": "0.2.0", "to": "0.3.0" }`). Tell the user in
+   one line when it's there: `"status": "updated"` means the new version
+   installed and takes effect on the next run; `"status": "failed"` means a newer
+   version was available but couldn't auto-install. When `update` is `null`, say
+   nothing about updates.
 
    If `vulnerablePackages` is 0, say so briefly and stop.
 
