@@ -39,9 +39,11 @@ verification step. If a step fails, report the failure and stop — do not guess
      chifu check --json     # or: bunx @marshell/chifu check --json
    It must exit and return JSON. If it errors, surface the message and stop.
 
-5. Confirm the chifu skill/rule is installed for THIS agent so you reach for it
-   automatically. Run the official installer, which detects this agent and
-   writes the skill to the right place:
+5. Install the chifu skill into THIS agent (and any others you use) so you reach
+   for it automatically. Prefer skills.sh, which detects your coding agents and
+   installs the skill into each in its native format:
+     npx skills add marshell-dev/chifu-skill --global --yes
+   Or run the chifu wizard, which does this for you and also installs the CLI:
      bunx @marshell/chifu-wizard --yes
    Then verify a chifu instruction file now exists for your agent (e.g. a
    Claude Code skill, a Cursor rule, or a "## chifu" block in AGENTS.md).

@@ -27,7 +27,7 @@ import { dirname, join } from "node:path";
 
 import { onPath } from "../exec.ts";
 import { log, c, spinner, type Prompter } from "../ui.ts";
-import { installViaSkillsSh, skillsShDisabled, SKILLS_SH_REPO } from "./skills-sh.ts";
+import { installViaSkillsSh, updateViaSkillsSh, skillsShDisabled, SKILLS_SH_REPO } from "./skills-sh.ts";
 import {
   claudeDir,
   claudeSkillDir,
@@ -92,6 +92,9 @@ export interface InstallAgentsOptions {
   only?: AgentTarget[];
   // --all-agents: install into every detected target without per-agent prompts.
   all?: boolean;
+  // update=true: use `skills update` instead of `skills add` so already-installed
+  // agents get their skill overwritten with the latest version from GitHub.
+  update?: boolean;
 }
 
 // ── shared rendering helpers ────────────────────────────────────────────────
@@ -335,14 +338,21 @@ export async function installAgents(
     return buildResult(installs);
   }
 
-  // 1b. PRIMARY path — skills.sh installs the skill into every detected agent in
-  //     one command. Used for the default "all agents" case; an explicit
+  // 1b. PRIMARY path — skills.sh installs/updates the skill into every detected
+  //     agent in one command. Used for the default "all agents" case; an explicit
   //     --target (onlySet) or CHIFU_NO_SKILLS_SH=1 falls through to the precise
   //     adapters below, and any skills.sh failure degrades to them gracefully.
+  //     Update path uses `skills update` (force-refreshes existing installs);
+  //     install path uses `skills add` (writes to agents that don't have it yet).
   if (!onlySet && !skillsShDisabled()) {
     const s = spinner();
-    s.start(`Installing the chifu skill into your agents via skills.sh (${SKILLS_SH_REPO})`);
-    const res = installViaSkillsSh();
+    const isUpdate = Boolean(options.update);
+    s.start(
+      isUpdate
+        ? `Updating the chifu skill in all agents via skills.sh`
+        : `Installing the chifu skill into your agents via skills.sh (${SKILLS_SH_REPO})`,
+    );
+    const res = isUpdate ? updateViaSkillsSh() : installViaSkillsSh();
     if (res.ok) {
       s.stop("Installed the chifu skill via skills.sh");
       // skills.sh wrote the files (and may cover agents we don't model); we

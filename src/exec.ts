@@ -27,6 +27,9 @@ export interface RunResult {
 export interface RunOptions {
   capture?: boolean;
   cwd?: string;
+  // Hard cap in ms (spawnSync `timeout`). The child is killed if it overruns and
+  // `ok` comes back false — used so a hung network install can't block the wizard.
+  timeout?: number;
 }
 
 // Quote an argument for safe inclusion in a shell command string.
@@ -42,12 +45,14 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): RunResu
         stdio: ["ignore", stdio, stdio],
         cwd: opts.cwd,
         encoding: "utf8",
+        timeout: opts.timeout,
         shell: true, // single string + shell:true → resolves .cmd/.ps1, no DEP0190
       })
     : spawnSync(cmd, args, {
         stdio: ["ignore", stdio, stdio],
         cwd: opts.cwd,
         encoding: "utf8",
+        timeout: opts.timeout,
       });
   return {
     ok: res.status === 0,

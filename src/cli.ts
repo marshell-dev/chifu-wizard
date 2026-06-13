@@ -21,6 +21,10 @@
 // parsed with yargs; backend responses validated with zod; the browser is
 // opened with `open`; and CHIFU_* env can come from a .env file (dotenv).
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { config as loadDotenv } from "dotenv";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
@@ -52,7 +56,31 @@ import { printAgentPrompt } from "./agent-prompt.ts";
 // for --json mode, which must emit only the result object.
 loadDotenv({ quiet: true });
 
-const VERSION = "0.1.0";
+// Single source of truth for the version: the shipped package.json (resolved
+// next to this module — ../package.json from both src/cli.ts in dev and
+// dist/cli.js in prod). npm always includes package.json in the tarball, so this
+// never drifts from what was published. Falls back to 0.0.0 if unreadable.
+function readVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    for (const rel of ["../package.json", "../../package.json"]) {
+      try {
+        const pkg = JSON.parse(readFileSync(join(here, rel), "utf8")) as {
+          name?: string;
+          version?: string;
+        };
+        if (pkg?.name === "@marshell/chifu-wizard" && pkg.version) return pkg.version;
+      } catch {
+        /* try the next candidate path */
+      }
+    }
+  } catch {
+    /* fall through to the default */
+  }
+  return "0.0.0";
+}
+
+const VERSION = readVersion();
 
 const DEFAULT_API_URL = "https://api.marshell.dev";
 const DEFAULT_WEB_URL = "https://marshell.dev";
@@ -253,8 +281,10 @@ async function runUpdate(args: Args): Promise<number> {
       log.step("AI coding agents");
       log.skip("Skipped (--skip-agents)");
     } else {
-      // Re-render the bundled (latest) skill into every detected agent.
-      const r = await installAgents(prompt, { assumeYes: true, only: args.targets, all: true });
+      // Update the skill in every agent — use skills.sh `update` so already-
+      // installed agents get the latest SKILL.md from GitHub, not just `add`
+      // which skips agents where the skill is already present.
+      const r = await installAgents(prompt, { assumeYes: true, only: args.targets, all: true, update: true });
       agents = r.installs;
     }
 

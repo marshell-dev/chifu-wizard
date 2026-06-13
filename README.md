@@ -40,16 +40,20 @@ bunx @marshell/chifu-wizard --api-key chf_xxx
    globally (`npm i -g @marshell/chifu`, falling back to `bun add -g`). The CLI
    also runs via `bunx @marshell/chifu` with no global install, so this step is
    optional.
-2. **Wires up every AI coding agent it detects.** For each one it translates the
-   bundled skill (`assets/SKILL.md`) into that agent's native instruction format
-   and drops it in the right place. See [Supported agents](#supported-agents).
+2. **Installs the chifu skill into every AI coding agent it detects.** By default
+   it uses [skills.sh](https://www.skills.sh) — the cross-agent skills registry —
+   to install [`marshell-dev/chifu-skill`](../chifu-skill) into all your agents
+   in one shot. If skills.sh can't run (or you pass `--target`, or set
+   `CHIFU_NO_SKILLS_SH=1`), it falls back to its built-in per-agent installers
+   that translate the bundled skill (`assets/SKILL.md`) into each agent's native
+   format. See [Supported agents](#supported-agents).
 3. **Signs you in** (browser pairing) so your checks sync to your dashboard.
    chifu needs an account — `chifu check` won't run until you've signed in.
 4. **Sets an optional custom backend URL** (defaults to `https://api.marshell.dev`).
 5. **Prints a short how-to.**
 
-The skill is bundled with the wizard, so it works offline and is fully
-self-contained.
+The skill is also bundled with the wizard (`assets/SKILL.md`), so the fallback
+installers work offline and fully self-contained.
 
 ## Options
 
@@ -95,10 +99,17 @@ Windows) with mode `600`.
 
 ## Supported agents
 
-The wizard detects each agent by its config directory (or binary on PATH) and
-writes the skill in that agent's native format. Adapters are independent — one
-failing never blocks the others. Formats marked *best-effort* follow the most
-reasonable convention for that tool; adjust to taste.
+By default the skill is installed through [skills.sh](https://www.skills.sh),
+which detects and supports a much broader set of agents (Claude Code, Cursor,
+Codex, GitHub Copilot, Windsurf, Gemini, Cline, Amp, Antigravity, Goose, Kilo,
+Roo, Zed, and more).
+
+The table below is the **fallback** path: when skills.sh is unavailable (or you
+pass `--target`, or set `CHIFU_NO_SKILLS_SH=1`), the wizard detects each agent by
+its config directory (or binary on PATH) and writes the skill in that agent's
+native format. Adapters are independent — one failing never blocks the others.
+Formats marked *best-effort* follow the most reasonable convention for that tool;
+adjust to taste.
 
 | Agent | Detected via | Format | Location |
 |---|---|---|---|
