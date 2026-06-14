@@ -122,8 +122,12 @@ function rulePreamble(): string {
 isn't installed) before EVERY \`git commit\`, \`git push\`, or pull-request open —
 regardless of whether package.json changed. Also run whenever you add, upgrade,
 pin, or remove a dependency. Run from the directory that contains package.json
-(not necessarily the git root). NEVER run npm/bun/yarn install as part of this
-check. Report findings; do not edit versions or lockfiles.`;
+(not necessarily the git root). Fix what chifu finds by editing package.json
+(bump the version for direct deps; add overrides/resolutions for transitive
+deps), then run \`npm install --package-lock-only --ignore-scripts\` to
+re-resolve the lockfile, then re-run chifu check. Loop until vulnerablePackages
+is 0. NEVER run a plain npm/bun/yarn install — use only
+\`npm install --package-lock-only --ignore-scripts\` after editing package.json.`;
 }
 
 // Render a self-delimited "## chifu" block for AGENTS.md / GEMINI.md targets.
@@ -209,10 +213,10 @@ const adapters: Adapter[] = [
 description: >-
   Run chifu check --json before EVERY git commit, git push, or pull-request
   open — regardless of whether package.json changed. Also run whenever a
-  dependency is added, upgraded, pinned, or removed. Run from the directory
-  that contains package.json (not necessarily the git root). NEVER run
-  npm/bun/yarn install as part of this check. Report findings; do not edit
-  versions or lockfiles.
+  dependency is added, upgraded, pinned, or removed. Fix what chifu finds by
+  editing package.json and looping until vulnerablePackages is 0. NEVER run
+  npm/bun/yarn install — only npm install --package-lock-only --ignore-scripts
+  is allowed after editing package.json.
 alwaysApply: false
 ---
 
